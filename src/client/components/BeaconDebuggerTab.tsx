@@ -188,11 +188,22 @@ export function BeaconDebuggerTab({
                 )}
                 {auditReport.rokuPerf8080?.reachable && (
                   <>
-                    <span className="pill mono">RAM: {auditReport.rokuPerf8080.channelMemMb ?? '?'} MB</span>
                     <span className="pill mono">
-                      VRAM: {auditReport.rokuPerf8080.textureUsedMb ?? '?'} MB ({auditReport.rokuPerf8080.textureUtilizationPct ?? '?'}%)
+                      RAM:{' '}
+                      {auditReport.rokuPerf8080.channelMemMb !== undefined
+                        ? `${auditReport.rokuPerf8080.channelMemMb} MB`
+                        : 'Idle (Home)'}
                     </span>
-                    <span className="pill mono">CPU: {auditReport.rokuPerf8080.cpuTotalPct ?? '?'}%</span>
+                    <span className="pill mono">
+                      VRAM: {auditReport.rokuPerf8080.textureUsedMb ?? '0'} MB (
+                      {auditReport.rokuPerf8080.textureUtilizationPct ?? '0'}%)
+                    </span>
+                    <span className="pill mono">
+                      CPU:{' '}
+                      {auditReport.rokuPerf8080.cpuTotalPct !== undefined
+                        ? `${auditReport.rokuPerf8080.cpuTotalPct}%`
+                        : 'Idle'}
+                    </span>
                   </>
                 )}
               </div>
@@ -310,7 +321,10 @@ export function BeaconDebuggerTab({
             <button
               className="btn btn-sm"
               onClick={() =>
-                api.simulateBeacons({ sessionId, adId: 'preroll-spot-1', podId: 'preroll' }).then(onRefresh)
+                api.simulateBeacons({ sessionId, adId: 'preroll-spot-1', podId: 'preroll' }).then(() => {
+                  onRefresh();
+                  refreshAudit();
+                })
               }
             >
               <Play size={12} /> Simulate Full Ad Beacons
@@ -320,7 +334,10 @@ export function BeaconDebuggerTab({
               onClick={() =>
                 api
                   .simulateBeacons({ sessionId, adId: 'sim-broken-ad', podId: 'preroll', includeError: true })
-                  .then(onRefresh)
+                  .then(() => {
+                    onRefresh();
+                    refreshAudit();
+                  })
               }
             >
               <ShieldAlert size={12} /> Simulate RAF Error 403

@@ -377,9 +377,11 @@ export function RokuDeviceTab({
                   .getRokuPerf(rokuIp, sessionId)
                   .then((p) => {
                     setPerfSnap(p);
+                    const ramLabel = p.channelMemMb !== undefined ? `${p.channelMemMb} MB` : 'Idle (Home)';
+                    const cpuLabel = p.cpuTotalPct !== undefined ? `${p.cpuTotalPct}%` : 'Idle';
                     setStatusBanner(
                       p.reachable
-                        ? `Sampled :8080 — RAM ${p.channelMemMb ?? '?'} MB | VRAM ${p.textureUsedMb ?? '?'} MB (${p.textureUtilizationPct ?? '?'}%) | CPU ${p.cpuTotalPct ?? '?'}%`
+                        ? `Sampled :8080 — RAM ${ramLabel} | VRAM ${p.textureUsedMb ?? 0} MB (${p.textureUtilizationPct ?? 0}%) | CPU ${cpuLabel}`
                         : `Port :8080 unreachable: ${p.error}`
                     );
                   })
@@ -391,12 +393,18 @@ export function RokuDeviceTab({
           </div>
           {perfSnap?.reachable ? (
             <div className="btn-row" style={{ flexWrap: 'wrap' }}>
-              <span className="pill ok mono">RAM: {perfSnap.channelMemMb ?? 'n/a'} MB</span>
-              <span className={`pill mono ${(perfSnap.textureUtilizationPct ?? 0) > 85 ? 'warn' : 'ok'}`}>
-                VRAM: {perfSnap.textureUsedMb ?? 'n/a'} MB ({perfSnap.textureUtilizationPct ?? 'n/a'}%)
+              <span className="pill ok mono">
+                RAM: {perfSnap.channelMemMb !== undefined ? `${perfSnap.channelMemMb} MB` : 'Idle (Home)'}
               </span>
-              <span className="pill mono">CPU: {perfSnap.cpuTotalPct ?? 'n/a'}%</span>
-              <span className="pill mono">SG Nodes: {perfSnap.sgNodeCount ?? 'n/a'}</span>
+              <span className={`pill mono ${(perfSnap.textureUtilizationPct ?? 0) > 85 ? 'warn' : 'ok'}`}>
+                VRAM: {perfSnap.textureUsedMb ?? 0} MB ({perfSnap.textureUtilizationPct ?? 0}%)
+              </span>
+              <span className="pill mono">
+                CPU: {perfSnap.cpuTotalPct !== undefined ? `${perfSnap.cpuTotalPct}%` : 'Idle'}
+              </span>
+              <span className="pill mono">
+                SG Nodes: {perfSnap.sgNodeCount !== undefined ? perfSnap.sgNodeCount : 'Idle'}
+              </span>
             </div>
           ) : (
             <div className="muted" style={{ fontSize: 12 }}>
@@ -546,7 +554,7 @@ export function RokuDeviceTab({
         <div className="card">
           <div className="card-header">
             <h3 className="card-title">
-              <Play size={16} /> 4-Mode RAF Deep-Link Launcher & Runtime Settings
+              <Play size={16} /> 5-Mode RAF Deep-Link Launcher & Runtime Settings
             </h3>
           </div>
 

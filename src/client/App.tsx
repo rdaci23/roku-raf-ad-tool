@@ -126,7 +126,7 @@ export function App() {
           <div>
             <h1>Roku RAF Ad Tool</h1>
             <p>
-              VAST/VMAP/HLS/DASH • GAM, DAI, SpringServe, Publica & FreeWheel • Beacon Diff & Cert Audit • 4-Mode Roku Harness
+              VAST/VMAP/HLS/DASH • GAM, DAI, SpringServe, Publica & FreeWheel • Beacon Diff & Cert Audit • 5-Mode Roku Harness
             </p>
           </div>
         </div>

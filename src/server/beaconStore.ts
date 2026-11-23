@@ -93,10 +93,11 @@ export class BeaconStore {
     userAgent?: string;
     remoteIp?: string;
     forwardedStatus?: number;
+    epochMs?: number;
     details?: Record<string, unknown>;
   }): BeaconEvent {
     const sessionId = input.sessionId?.trim() || 'default';
-    const now = Date.now();
+    const now = input.epochMs ?? Date.now();
     if (!this.sessionStartTimes.has(sessionId)) {
       this.sessionStartTimes.set(sessionId, now);
     }

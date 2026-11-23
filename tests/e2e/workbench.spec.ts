@@ -40,7 +40,7 @@ test.describe('Roku RAF Ad Tool — 5-Tab Browser Workbench E2E', () => {
     await page.getByRole('button', { name: /4\. Roku Roster & Suite Runner/i }).click();
     await expect(page.getByText(/Attach & Deep-Link Your Own Channel/i)).toBeVisible();
     await expect(page.getByText(/Roku OS :8080 Memory & Texture VRAM Profiler/i)).toBeVisible();
-    await expect(page.getByText(/4-Mode RAF Deep-Link Launcher/i)).toBeVisible();
+    await expect(page.getByText(/5-Mode RAF Deep-Link Launcher/i)).toBeVisible();
     await expect(page.getByText(/Automated Scenario Suite Runner/i)).toBeVisible();
 
     // Tab 5: Sessions & HAR Reports

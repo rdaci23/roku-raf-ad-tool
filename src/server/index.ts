@@ -494,25 +494,28 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
         const adId = body.adId || 'preroll-spot-1';
         const podId = body.podId || 'preroll';
 
-        // Ensure expected beacons exist if none were loaded yet for this session
-        if (beaconStore.getExpectedBeacons(sessionId).length === 0 && !body.includeError) {
+        // Reset session and register matching 8s single-preroll expectations for clean full-ad simulation
+        if (!body.includeError) {
+          beaconStore.clear(sessionId);
           const mockXml = generateMockVastXml('single-preroll', { baseUrl, sessionId });
           registerXmlExpectations(sessionId, mockXml, `${baseUrl}/mock/vast/single-preroll.xml`, podId);
         }
 
-        const steps: Array<{ event: string; kind: BeaconEventKind; errorCode?: string }> = body.includeError
-          ? [
-              { event: 'impression', kind: 'impression' },
-              { event: 'error', kind: 'error', errorCode: '403' },
-            ]
-          : [
-              { event: 'impression', kind: 'impression' },
-              { event: 'start', kind: 'quartile' },
-              { event: 'firstQuartile', kind: 'quartile' },
-              { event: 'midpoint', kind: 'quartile' },
-              { event: 'thirdQuartile', kind: 'quartile' },
-              { event: 'complete', kind: 'quartile' },
-            ];
+        const baseEpoch = Date.now() - 8000;
+        const steps: Array<{ event: string; kind: BeaconEventKind; offsetMs: number; errorCode?: string }> =
+          body.includeError
+            ? [
+                { event: 'impression', kind: 'impression', offsetMs: 8000 },
+                { event: 'error', kind: 'error', offsetMs: 8100, errorCode: '403' },
+              ]
+            : [
+                { event: 'impression', kind: 'impression', offsetMs: 0 },
+                { event: 'start', kind: 'quartile', offsetMs: 40 },
+                { event: 'firstQuartile', kind: 'quartile', offsetMs: 2000 },
+                { event: 'midpoint', kind: 'quartile', offsetMs: 4000 },
+                { event: 'thirdQuartile', kind: 'quartile', offsetMs: 6000 },
+                { event: 'complete', kind: 'quartile', offsetMs: 8000 },
+              ];
 
         for (const st of steps) {
           beaconStore.record({
@@ -522,6 +525,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
             adId,
             podId,
             errorCode: st.errorCode,
+            epochMs: baseEpoch + st.offsetMs,
             requestUrl: `${baseUrl}/api/beacon/hit?session=${sessionId}&event=${st.event}&adId=${adId}&podId=${podId}`,
             userAgent: 'Roku/DVP-12.5 (Simulated RAF Playback)',
             remoteIp: '127.0.0.1',
