@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { extname, join, normalize, dirname } from 'node:path';
+import { extname, join, normalize, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
@@ -112,7 +112,6 @@ function setCors(res: ServerResponse): void {
 }
 
 function sendJson(res: ServerResponse, status: number, data: unknown): void {
-  setCors(res);
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(data));
 }
@@ -126,10 +125,51 @@ function sendXml(res: ServerResponse, status: number, xml: string): void {
   res.end(xml);
 }
 
+const MAX_BODY_BYTES = 50 * 1024 * 1024; // 50 MB max payload (allows large .har uploads while preventing memory DoS)
+
+function isAllowedManagementOrigin(originHeader: string | undefined, lanIp: string): boolean {
+  if (!originHeader) return true; // Non-browser clients (CLI, MCP, Roku TV, curl) omit Origin
+  try {
+    const u = new URL(originHeader);
+    const host = u.hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '[::1]' ||
+      host === lanIp.toLowerCase() ||
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveSafeStaticPath(baseDir: string, rawSubpath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawSubpath);
+  } catch {
+    return null;
+  }
+  if (decoded.includes('\0')) return null;
+  const rootResolved = resolve(baseDir);
+  const candidate = resolve(rootResolved, `.${sep}${decoded}`);
+  if (candidate !== rootResolved && !candidate.startsWith(`${rootResolved}${sep}`)) {
+    return null;
+  }
+  return candidate;
+}
+
 async function readRawBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buf.length;
+    if (totalBytes > MAX_BODY_BYTES) {
+      throw new Error(`Payload exceeds maximum size limit (${MAX_BODY_BYTES} bytes)`);
+    }
+    chunks.push(buf);
   }
   return Buffer.concat(chunks).toString('utf8');
 }
@@ -156,7 +196,6 @@ function serveFileWithRanges(req: IncomingMessage, res: ServerResponse, filePath
   const st = statSync(filePath);
   if (!st.isFile()) return false;
 
-  setCors(res);
   const ext = extname(filePath).toLowerCase();
   const contentType = MIME_MAP[ext] ?? 'application/octet-stream';
   const range = req.headers.range;
@@ -323,17 +362,40 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
 
   const server: Server = createServer(async (req, res) => {
     try {
-      setCors(res);
+      const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+      const pathname = parsedUrl.pathname;
+
+      const lanIp = detectLanIp();
+      const isPublicPlayerRoute =
+        pathname.startsWith('/mock/') ||
+        pathname.startsWith('/proxy/') ||
+        pathname.startsWith('/media/') ||
+        pathname.startsWith('/api/beacon') ||
+        pathname === '/llms.txt' ||
+        pathname === '/api/openapi.json';
+
+      if (isPublicPlayerRoute) {
+        setCors(res);
+      } else {
+        const reqOrigin = req.headers.origin;
+        if (!isAllowedManagementOrigin(reqOrigin, lanIp)) {
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'Cross-origin browser access to management API denied' }));
+          return;
+        }
+        if (reqOrigin) {
+          res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+          res.setHeader('Vary', 'Origin');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        }
+      }
+
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
         return;
       }
-
-      const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
-      const pathname = parsedUrl.pathname;
-
-      const lanIp = detectLanIp();
       const addr = server.address();
       const boundAddr = typeof addr === 'object' && addr ? addr.address : '0.0.0.0';
       const isWildcardBind = boundAddr === '0.0.0.0' || boundAddr === '::';
@@ -1340,21 +1402,20 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
 
       // --- 8. Static Test Media (/media/*) ---
       if (pathname.startsWith('/media/')) {
-        const rel = normalize(pathname.slice('/media/'.length)).replace(/^(\.\.(\/|\\|$))+/, '');
-        const targetFile = join(PUBLIC_MEDIA_DIR, rel);
-        if (serveFileWithRanges(req, res, targetFile)) {
+        const rel = pathname.slice('/media/'.length);
+        const targetFile = resolveSafeStaticPath(PUBLIC_MEDIA_DIR, rel);
+        if (targetFile && serveFileWithRanges(req, res, targetFile)) {
           return;
         }
-        sendJson(res, 404, { error: `Media asset not found: ${rel}` });
+        sendJson(res, 404, { error: `Media asset not found` });
         return;
       }
 
       // --- 9. Built Frontend SPA (production mode) ---
       if (existsSync(DIST_CLIENT_DIR)) {
-        const cleanRel =
-          pathname === '/' ? 'index.html' : normalize(pathname.slice(1)).replace(/^(\.\.(\/|\\|$))+/, '');
-        const candidate = join(DIST_CLIENT_DIR, cleanRel);
-        if (serveFileWithRanges(req, res, candidate)) return;
+        const cleanRel = pathname === '/' ? 'index.html' : pathname.slice(1);
+        const candidate = resolveSafeStaticPath(DIST_CLIENT_DIR, cleanRel);
+        if (candidate && serveFileWithRanges(req, res, candidate)) return;
         const fallbackIndex = join(DIST_CLIENT_DIR, 'index.html');
         if (serveFileWithRanges(req, res, fallbackIndex)) return;
       }
