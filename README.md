@@ -48,7 +48,23 @@ Covers static BrightScript channel scanning, **CSAI (VAST 2.0–4.2 / VMAP 1.0 /
 - **Node.js `>= 22`** (uses built-in `node:sqlite`)
 - **`ffmpeg`** *(optional — automatically generates rich animated 720p commercials, HLS, and DASH media; falls back to valid embedded test clips if absent)*
 
+### Option A — Run Directly via `npx` or Global `npm` Install
+
 ```bash
+# Launch the 5-tab Web Workbench & Mock Ad Server immediately
+npx roku-raf-ad-tool
+
+# Or install globally (`raf`, `roku-raf-ad-tool`, and `roku-raf-mcp` binaries)
+npm install -g roku-raf-ad-tool
+raf scan-repo ./my-roku-channel --json
+raf serve --port 4321
+```
+
+### Option B — Clone from Source
+
+```bash
+git clone https://github.com/rdaci23/roku-raf-ad-tool.git
+cd roku-raf-ad-tool
 npm install
 cp .env.example .env   # Optional: set ROKU_IP and ROKU_DEV_PASSWORD
 npm run build
@@ -86,19 +102,36 @@ raf har ./samples/public-gam-roku-capture.har --json
   "mcpServers": {
     "roku-raf-ad-tool": {
       "command": "npx",
-      "args": ["tsx", "/path/to/roku-raf-ad-tool/src/mcp/server.ts"]
+      "args": ["-y", "--package=roku-raf-ad-tool", "roku-raf-mcp"]
     }
   }
 }
 ```
 
+### Programmatic TypeScript / Node.js SDK
+
+```ts
+import {
+  scanRokuChannelRepo,
+  validateAdTag,
+  inspectStreamManifest,
+  auditVendorAdRequestUrl,
+  generateBrightScriptSnippet,
+} from 'roku-raf-ad-tool';
+
+const scan = scanRokuChannelRepo('./my-roku-channel');
+const validation = validateAdTag(rawVastXml, { mediaType: 'shortFormVideo', contentLengthSec: 300 });
+```
+
 ---
 
-## Verification
+## Verification & Releases
 
 ```bash
-npm run verify      # Media generation + TypeScript check + Vitest unit/API/MCP tests
-npm run test:e2e    # Playwright 5-tab Chromium E2E test
+npm run verify        # Media generation + TypeScript/SDK build + Vitest unit/API/MCP tests
+npm run test:e2e      # Playwright 5-tab Chromium E2E test
+npm run release:dry   # Preview next SemVer bump & auto-generated CHANGELOG.md
+npm run release       # Verify, update CHANGELOG.md, tag, GitHub Release & npm publish
 ```
 
 ## License

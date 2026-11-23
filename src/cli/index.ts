@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +92,8 @@ Usage:
   npm run raf -- <command> [options] [--json]
 
 Commands:
+  serve [--port 4321]                           Start the 5-tab Web Workbench & Mock Ad Server
+  mcp                                           Start the 13-tool Model Context Protocol (MCP) stdio server
   status [--ip <roku-ip>]                       Server, LAN URL & Roku device status
   perf [--ip <roku-ip>]                         Query :8080 Channel RAM, CPU %, Texture VRAM & SG nodes
   scan-repo [channel-dir]                       Statically scan BrightScript/SceneGraph channel for RAF issues
@@ -150,6 +153,29 @@ async function main() {
   if (cmd === 'help' || flags.help) {
     printHelp();
     return;
+  }
+
+  if (cmd === 'serve' || cmd === 'start') {
+    const { createAppServer, ensureTestMediaAssets } = await import('../server/index.js');
+    ensureTestMediaAssets();
+    const listenPort = Number(port);
+    const { server } = createAppServer({ port: listenPort });
+    await new Promise<void>((resolveListen) => {
+      server.listen(listenPort, '0.0.0.0', () => {
+        console.log(`[roku-raf-ad-tool] Workbench Server listening on:`);
+        console.log(`  Local: http://127.0.0.1:${listenPort}`);
+        console.log(`  LAN:   http://${detectLanIp()}:${listenPort}  (use this on Roku devices)`);
+        resolveListen();
+      });
+    });
+    await new Promise(() => {}); // Keep process alive until SIGINT/SIGTERM
+    return;
+  }
+
+  if (cmd === 'mcp') {
+    const mcpBin = join(ROOT, 'bin', 'roku-raf-mcp.mjs');
+    const res = spawnSync(process.execPath, [mcpBin], { stdio: 'inherit', env: process.env });
+    process.exit(res.status ?? 0);
   }
 
   if (cmd === 'status') {

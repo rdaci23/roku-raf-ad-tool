@@ -67,17 +67,19 @@ Exposes 13 tools over stdio (`scan_roku_channel_repo`, `validate_ad_tag`, `inspe
   "mcpServers": {
     "roku-raf-ad-tool": {
       "command": "npx",
-      "args": ["tsx", "./src/mcp/server.ts"]
+      "args": ["-y", "--package=roku-raf-ad-tool", "roku-raf-mcp"]
     }
   }
 }
 ```
 
-## 4. Verification
+## 4. Verification & Releases
 
 After any code or BrightScript changes, run:
 
 ```bash
 npm run verify
 npm run test:e2e
+npm run release:dry   # Preview SemVer bump & auto-generated CHANGELOG.md
+npm run release       # Full local release (verify -> CHANGELOG.md -> git tag -> GitHub Release -> npm publish)
 ```

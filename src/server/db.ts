@@ -1,5 +1,6 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
@@ -22,7 +23,11 @@ interface SqliteDatabase {
 }
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const DEFAULT_DB_PATH = join(ROOT, 'data', 'raf-tool.sqlite');
+const IS_GIT_CHECKOUT = existsSync(join(ROOT, '.git'));
+const DATA_DIR =
+  process.env.RAF_DATA_DIR ||
+  (IS_GIT_CHECKOUT ? join(ROOT, 'data') : join(homedir(), '.roku-raf-ad-tool', 'data'));
+const DEFAULT_DB_PATH = join(DATA_DIR, 'raf-tool.sqlite');
 
 export class AppDatabase {
   private db: SqliteDatabase;

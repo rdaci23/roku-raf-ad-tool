@@ -7,12 +7,15 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHANNEL_IMAGES_DIR = join(ROOT, 'roku-channel', 'images');
-const MEDIA_DIR = join(ROOT, 'public', 'media');
+const MEDIA_DIR = process.env.RAF_MEDIA_DIR || join(ROOT, 'public', 'media');
 const HLS_DIR = join(MEDIA_DIR, 'hls');
 const DASH_DIR = join(MEDIA_DIR, 'dash');
 const FORCE = process.argv.includes('--force');
+const SKIP_CHANNEL_IMAGES = process.env.RAF_SKIP_CHANNEL_IMAGES === '1';
 
-mkdirSync(CHANNEL_IMAGES_DIR, { recursive: true });
+if (!SKIP_CHANNEL_IMAGES) {
+  mkdirSync(CHANNEL_IMAGES_DIR, { recursive: true });
+}
 mkdirSync(HLS_DIR, { recursive: true });
 mkdirSync(DASH_DIR, { recursive: true });
 
@@ -122,11 +125,13 @@ const pngTargets = [
   { file: 'splash_screen_hd.png', w: 1280, h: 720 },
 ];
 
-for (const item of pngTargets) {
-  const out = join(CHANNEL_IMAGES_DIR, item.file);
-  if (!existsSync(out) || FORCE) {
-    const buf = createSolidGradientPng(item.w, item.h, [18, 16, 46], [42, 20, 88], [139, 92, 246]);
-    writeFileSync(out, buf);
+if (!SKIP_CHANNEL_IMAGES) {
+  for (const item of pngTargets) {
+    const out = join(CHANNEL_IMAGES_DIR, item.file);
+    if (!existsSync(out) || FORCE) {
+      const buf = createSolidGradientPng(item.w, item.h, [18, 16, 46], [42, 20, 88], [139, 92, 246]);
+      writeFileSync(out, buf);
+    }
   }
 }
 

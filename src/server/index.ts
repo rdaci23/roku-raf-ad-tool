@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { extname, join, normalize, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -66,8 +68,27 @@ import { parseAdXml } from '../shared/vastParser.js';
 import { auditVendorAdRequestUrl, buildVendorRequestTemplate } from '../shared/vendorTemplates.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PUBLIC_MEDIA_DIR = join(ROOT, 'public', 'media');
+const IS_GIT_CHECKOUT = existsSync(join(ROOT, '.git'));
+const PUBLIC_MEDIA_DIR =
+  process.env.RAF_MEDIA_DIR ||
+  (IS_GIT_CHECKOUT ? join(ROOT, 'public', 'media') : join(homedir(), '.roku-raf-ad-tool', 'media'));
 const DIST_CLIENT_DIR = join(ROOT, 'dist', 'client');
+
+export function ensureTestMediaAssets(): void {
+  if (!existsSync(join(PUBLIC_MEDIA_DIR, 'ad-spot-1.mp4'))) {
+    const genScript = join(ROOT, 'scripts', 'generate-media.mjs');
+    if (existsSync(genScript)) {
+      spawnSync(process.execPath, [genScript], {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          RAF_MEDIA_DIR: PUBLIC_MEDIA_DIR,
+          RAF_SKIP_CHANNEL_IMAGES: IS_GIT_CHECKOUT ? '0' : '1',
+        },
+      });
+    }
+  }
+}
 
 const MIME_MAP: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -1351,6 +1372,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === normalize(process.argv[1]);
 if (isMain) {
+  ensureTestMediaAssets();
   const port = Number(process.env.PORT || 4321);
   const { server } = createAppServer({ port });
   server.listen(port, '0.0.0.0', () => {

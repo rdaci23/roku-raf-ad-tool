@@ -4,12 +4,47 @@
   "license": "MIT",
   "description": "All-in-one Roku Advertising Framework (RAF) workbench: BrightScript channel scanner, VAST/VMAP/SmartXML validator, live beacon certification auditor, CSAI/SSAI/DAI mock studio, CLI, MCP server, and Roku SceneGraph test harness.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.js"
+    }
+  },
   "bin": {
-    "raf": "./bin/raf.mjs"
+    "roku-raf-ad-tool": "./bin/roku-raf-ad-tool.mjs",
+    "raf": "./bin/raf.mjs",
+    "roku-raf-mcp": "./bin/roku-raf-mcp.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "roku-channel",
+    "scripts/generate-media.mjs",
+    "samples",
+    ".agents",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
+  "homepage": "https://github.com/rdaci23/roku-raf-ad-tool#readme",
+  "bugs": {
+    "url": "https://github.com/rdaci23/roku-raf-ad-tool/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/rdaci23/roku-raf-ad-tool.git"
+    "url": "git+https://github.com/rdaci23/roku-raf-ad-tool.git"
   },
   "keywords": [
     "roku",
@@ -21,6 +56,7 @@
     "ssai",
     "scte35",
     "google-dai",
+    "ctv",
     "mcp"
   ],
   "engines": {
@@ -31,18 +67,22 @@
     "dev": "npm run setup:assets && concurrently -n api,web -c cyan,magenta \"tsx watch src/server/index.ts\" \"vite\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:web": "vite",
-    "build": "npm run setup:assets && tsc --noEmit && vite build",
-    "start": "NODE_ENV=production tsx src/server/index.ts",
+    "build": "npm run setup:assets && tsc --noEmit && tsc -p tsconfig.build.json && vite build",
+    "prepack": "npm run build",
+    "start": "NODE_ENV=production node dist/server/index.js",
     "package:channel": "node scripts/package-channel.mjs",
     "check:roku": "tsx scripts/check-roku.ts",
     "sideload:roku": "tsx scripts/sideload-roku.ts",
-    "raf": "tsx src/cli/index.ts",
-    "mcp": "tsx src/mcp/server.ts",
+    "raf": "node bin/raf.mjs",
+    "mcp": "node bin/roku-raf-mcp.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
-    "verify": "npm run build && npm test"
+    "verify": "npm run build && npm test",
+    "release": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it'",
+    "release:github": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it --no-npm.publish'",
+    "release:dry": "release-it --dry-run --npm.skipChecks --no-git.requireCleanWorkingDir"
   },
   "dependencies": {
     "fast-xml-parser": "^5.2.5",
@@ -52,11 +92,13 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.65.0",
+    "@release-it/conventional-changelog": "^12.0.2",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.5.0",
     "concurrently": "^9.1.2",
+    "release-it": "^21.1.3",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",

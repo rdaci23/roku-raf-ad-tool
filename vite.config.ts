@@ -5,6 +5,7 @@ const API_TARGET = process.env.API_URL || 'http://127.0.0.1:4321';
 
 export default defineConfig({
   plugins: [react()],
+  publicDir: false,
   build: {
     outDir: 'dist/client',
     emptyOutDir: true,
