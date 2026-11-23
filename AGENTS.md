@@ -9,7 +9,6 @@ This repository is engineered for **both humans (5-tab Web Workbench + Roku Scen
 - **Machine Discovery**:
   - `GET http://127.0.0.1:4321/llms.txt`
   - `GET http://127.0.0.1:4321/api/openapi.json`
-- **No GitHub Actions**: Do not add `.github/workflows` unless explicitly requested by the user.
 
 ## 2. AI-Ready CLI (`raf ...` or `npm run raf -- ...`)
 
@@ -41,10 +40,17 @@ raf sideload --json
 raf run --scenario single-preroll --mode csai --screenshot --json
 raf run --tag "https://pubads.g.doubleclick.net/gampad/ads?..." --proxy --screenshot --json
 
+# Attach to any installed dev/channel without overwriting dev, or sample :8080 RAM/VRAM/CPU
+raf attach --channel dev --content-id ep-101 --media-type episode --json
+raf perf --json
+
+# Inject or clear Ad Chaos network faults (none | http-503 | http-429 | corrupt-xml | empty-vast-303 | drop-wrapper-hop | media-500 | latency | timeout-hang)
+raf chaos --mode none --json
+
 # Cue a Live SCTE-35 / #EXT-X-DATERANGE ad break in the Live Linear HLS stream
 raf cue-live --session roku-tv --duration 10 --json
 
-# Run 18-case Automated Certification Suite (--simulate when offline)
+# Run 20-case Automated Certification & Chaos Suite (--simulate when offline)
 raf suite --json
 raf suite --simulate --json
 
@@ -54,7 +60,7 @@ raf har ./samples/public-gam-roku-capture.har --json
 
 ## 3. MCP Server Integration (`npm run mcp`)
 
-Exposes 10 tools over stdio (`scan_roku_channel_repo`, `validate_ad_tag`, `inspect_stream_manifest`, `audit_vendor_ad_url`, `generate_raf_brightscript`, `roku_device_status`, `cue_live_scte35_break`, `get_session_beacon_audit`, `capture_roku_screenshot`, `import_har_file`). Attach `src/mcp/server.ts` in any MCP client:
+Exposes 13 tools over stdio (`scan_roku_channel_repo`, `validate_ad_tag`, `inspect_stream_manifest`, `audit_vendor_ad_url`, `generate_raf_brightscript`, `roku_device_status`, `roku_performance_profile`, `attach_external_roku_channel`, `configure_chaos_fault`, `cue_live_scte35_break`, `get_session_beacon_audit`, `capture_roku_screenshot`, `import_har_file`). Attach `src/mcp/server.ts` in any MCP client:
 
 ```json
 {

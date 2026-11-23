@@ -1,6 +1,10 @@
 import { networkInterfaces } from 'node:os';
 
 export function detectLanIp(): string {
+  const explicitIp = process.env.LAN_HOST_IP?.trim();
+  if (explicitIp) {
+    return explicitIp;
+  }
   const nets = networkInterfaces();
   const candidates: string[] = [];
 

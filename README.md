@@ -4,6 +4,12 @@ Unified engineering, debugging, and certification workbench for the **Roku Adver
 
 Covers static BrightScript channel scanning, **CSAI (VAST 2.0–4.2 / VMAP 1.0 / FreeWheel SmartXML)**, **Client-Stitched Pods**, **Custom Skippable SceneGraph UI**, **VOD & Live Linear SSAI (`#EXT-X-DATERANGE` / SCTE-35)**, **MPEG-DASH (`.mpd`)**, and **Google Ad Manager DAI**.
 
+![Validator, Ad-Load Policy & BrightScript Scanner](./docs/screenshots/validator-and-scanner.png)
+
+| Expected-vs-Actual Beacon & Certification Auditor | Roku Roster, `:8080` Profiler & 20-Case Suite |
+| :---: | :---: |
+| ![Beacon Diff & Roku Certification Auditor](./docs/screenshots/beacon-cert-auditor.png) | ![Roku Roster, :8080 Profiler & 20-Case Suite](./docs/screenshots/roku-roster-and-suite.png) |
+
 ---
 
 ## Core Capabilities
@@ -64,9 +70,12 @@ raf scan-repo ./roku-channel --json
 raf validate "http://127.0.0.1:4321/mock/vast/pod-3-ads.xml" --json
 raf inspect-manifest "http://127.0.0.1:4321/mock/ssai/stream.m3u8" --json
 raf sideload --ip <roku-ip> --password <dev-password> --json
+raf attach --ip <roku-ip> --channel dev --content-id ep-101 --media-type episode --json
+raf perf --ip <roku-ip> --json
+raf chaos --mode http-503 --json
 raf run --ip <roku-ip> --scenario single-preroll --mode csai --screenshot --json
 raf suite --simulate --json          # Offline CI / agent simulation
-raf suite --ip <roku-ip> --json      # Full 18-case physical Roku hardware suite
+raf suite --ip <roku-ip> --json      # Full 20-case physical Roku hardware & chaos suite
 raf har ./samples/public-gam-roku-capture.har --json
 ```
 
