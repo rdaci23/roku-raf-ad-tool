@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+  <interface>
+    <field id="launchArgs" type="assocarray" onChange="onLaunchArgs" />
+    <field id="externalInput" type="assocarray" onChange="onExternalInput" />
+  </interface>
+
+  <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+
+  <children>
+    <Rectangle id="bg" width="1920" height="1080" color="0x0B0F19FF" />
+
+    <!-- Fullscreen Video Player -->
+    <Video id="contentVideo" width="1920" height="1080" visible="false" enableUI="true" />
+
+    <!-- Dedicated SceneGraph container passed to raf.showAds() / raf.renderStitchedStream() -->
+    <Group id="adContainer" visible="true" />
+
+    <!-- Main TV Menu Overlay -->
+    <Group id="menuOverlay" visible="true">
+      <Rectangle width="1920" height="104" color="0x131B2EFF" />
+      <Label
+        id="headerTitle"
+        translation="[64, 20]"
+        text="ROKU RAF AD TOOL v2 — 4-MODE ON-DEVICE HARNESS"
+        font="font:MediumBoldSystemFont"
+        color="0xA78BFAFF"
+      />
+      <Label
+        id="serverUrlLabel"
+        translation="[64, 62]"
+        width="1792"
+        text="Server: configuring..."
+        font="font:SmallestSystemFont"
+        color="0x94A3B8FF"
+      />
+
+      <!-- Left Column: Scenarios + Saved History -->
+      <Rectangle translation="[64, 132]" width="780" height="884" color="0x111827FF" />
+      <Label
+        id="listModeLabel"
+        translation="[96, 154]"
+        text="SCENARIOS (OK=Run | Play=Toggle History | Rew/Fwd=RAF Mode | *=HUD)"
+        font="font:SmallestBoldSystemFont"
+        color="0xE2E8F0FF"
+      />
+      <LabelList
+        id="presetList"
+        translation="[96, 204]"
+        itemSize="[716, 66]"
+        itemSpacing="[0, 10]"
+        numRows="10"
+        color="0xCBD5E1FF"
+        focusedColor="0x0F172AFF"
+      />
+
+      <!-- Right Column: Runtime RAF Prefs & Live Telemetry Console -->
+      <Rectangle translation="[872, 132]" width="984" height="884" color="0x0F172AFF" />
+      <Label
+        id="prefsSummaryLabel"
+        translation="[904, 154]"
+        width="920"
+        text="RAF Mode: csai | MaxRes: 1080p | Measurements: ON"
+        font="font:SmallestBoldSystemFont"
+        color="0x34D399FF"
+      />
+      <Label
+        id="activeTagLabel"
+        translation="[904, 192]"
+        width="920"
+        wrap="true"
+        maxLines="2"
+        text="Ready. Select a scenario or push any tag/DAI/Live stream from the Web Workbench."
+        font="font:SmallestSystemFont"
+        color="0x38BDF8FF"
+      />
+      <Label
+        id="consoleOutput"
+        translation="[904, 256]"
+        width="920"
+        height="730"
+        wrap="true"
+        maxLines="24"
+        text="[raf-harness] Initialized."
+        font="font:SmallestSystemFont"
+        color="0xE2E8F0FF"
+      />
+    </Group>
+
+    <!-- Transparent On-TV RAF Debug HUD during Ad/Content Playback (* key to toggle) -->
+    <Group id="playbackHud" translation="[692, 36]" visible="false">
+      <Rectangle width="1180" height="148" color="0x090D16BF" />
+      <Label
+        id="hudMetaLabel"
+        translation="[20, 14]"
+        width="1140"
+        text="RAF HUD"
+        font="font:SmallestBoldSystemFont"
+        color="0xA78BFAFF"
+      />
+      <Label
+        id="hudStatusLabel"
+        translation="[20, 48]"
+        width="1140"
+        height="88"
+        wrap="true"
+        maxLines="3"
+        text="Waiting for RAF events..."
+        font="font:SmallestSystemFont"
+        color="0x6EE7B7FF"
+      />
+    </Group>
+
+    <!-- Custom SceneGraph Skippable Ad Countdown & Skip Button Overlay -->
+    <Group id="skipOverlay" translation="[1428, 864]" visible="false" focusable="true">
+      <Rectangle width="428" height="74" color="0x0F172AE6" />
+      <Rectangle width="8" height="74" color="0xF472B6FF" />
+      <Label
+        id="skipLabel"
+        translation="[26, 20]"
+        width="386"
+        text="Skip Ad in 5s"
+        font="font:SmallBoldSystemFont"
+        color="0xF8FAFCFF"
+      />
+    </Group>
+  </children>
+</component>

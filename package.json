@@ -1,0 +1,65 @@
+{
+  "name": "roku-raf-ad-tool",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "All-in-one Roku Advertising Framework (RAF) workbench: BrightScript channel scanner, VAST/VMAP/SmartXML validator, live beacon certification auditor, CSAI/SSAI/DAI mock studio, CLI, MCP server, and Roku SceneGraph test harness.",
+  "type": "module",
+  "bin": {
+    "raf": "./bin/raf.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rdaci23/roku-raf-ad-tool.git"
+  },
+  "keywords": [
+    "roku",
+    "raf",
+    "brightscript",
+    "scenegraph",
+    "vast",
+    "vmap",
+    "ssai",
+    "scte35",
+    "google-dai",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "setup:assets": "node scripts/generate-media.mjs",
+    "dev": "npm run setup:assets && concurrently -n api,web -c cyan,magenta \"tsx watch src/server/index.ts\" \"vite\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:web": "vite",
+    "build": "npm run setup:assets && tsc --noEmit && vite build",
+    "start": "NODE_ENV=production tsx src/server/index.ts",
+    "package:channel": "node scripts/package-channel.mjs",
+    "check:roku": "tsx scripts/check-roku.ts",
+    "sideload:roku": "tsx scripts/sideload-roku.ts",
+    "raf": "tsx src/cli/index.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest",
+    "verify": "npm run build && npm test"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.2.5",
+    "lucide-react": "^0.511.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.5.0",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.3"
+  }
+}

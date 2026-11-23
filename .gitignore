@@ -1,0 +1,12 @@
+node_modules/
+dist/
+public/media/
+data/
+*.zip
+*.log
+.DS_Store
+.env
+coverage/
+test-results/
+playwright-report/
+

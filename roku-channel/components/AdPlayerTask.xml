@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="AdPlayerTask" extends="Task">
+  <interface>
+    <field id="adTagUrl" type="string" />
+    <field id="contentUrl" type="string" />
+    <field id="adMode" type="string" value="csai" />
+    <field id="ssaiMetaUrl" type="string" value="" />
+    <field id="telemetryUrl" type="string" value="" />
+    <field id="maxResolution" type="string" value="1080p" />
+    <field id="enableAdMeasurements" type="boolean" value="true" />
+    <field id="useFallback" type="boolean" value="false" />
+    <field id="maxRequests" type="integer" value="5" />
+    <field id="contentId" type="string" value="ep-101-pilot" />
+    <field id="contentGenre" type="string" value="Action,Science fiction" />
+    <field id="contentLength" type="integer" value="1800" />
+    <field id="simulateLat" type="boolean" value="false" />
+    <field id="videoNode" type="node" />
+    <field id="adContainer" type="node" />
+    <field id="skipOverlayNode" type="node" />
+    <field id="skipLabelNode" type="node" />
+    <field id="canSkipNow" type="boolean" value="false" />
+    <field id="skipRequested" type="boolean" value="false" />
+    <field id="statusMessage" type="string" alwaysNotify="true" />
+    <field id="runFinished" type="boolean" value="false" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/AdPlayerTask.brs" />
+</component>

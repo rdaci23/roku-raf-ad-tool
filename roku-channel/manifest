@@ -1,0 +1,16 @@
+title=Roku RAF Ad Tool Harness
+subtitle=VAST / VMAP / SSAI Live Test Channel
+major_version=1
+minor_version=0
+build_version=00001
+mm_icon_focus_fhd=pkg:/images/mm_icon_focus_fhd.png
+mm_icon_focus_hd=pkg:/images/mm_icon_focus_hd.png
+mm_icon_focus_sd=pkg:/images/mm_icon_focus_sd.png
+splash_screen_fhd=pkg:/images/splash_screen_fhd.png
+splash_screen_hd=pkg:/images/splash_screen_hd.png
+splash_color=#12102E
+splash_min_time=500
+ui_resolutions=fhd
+supports_input_launch=1
+bs_libs_required=roku_ads_lib
+raf_tool_server_url=http://127.0.0.1:4321
