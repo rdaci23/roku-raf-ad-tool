@@ -137,6 +137,7 @@ sub runCsaiStandardFlow(raf as Object, video as Object)
     video.observeFieldScoped("position", port)
     video.observeFieldScoped("state", port)
     video.setFocus(true)
+    emitTelemetry("CONTENT_PLAY", m.top.contentUrl)
     video.control = "play"
 
     playing = true

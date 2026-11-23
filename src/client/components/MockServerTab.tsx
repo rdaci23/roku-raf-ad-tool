@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Copy, Eye, FileCode2, Plus, Radio, Send, Trash2, Zap } from 'lucide-react';
 import { api } from '../api.js';
 import type {
+  ChaosConfig,
+  ChaosFaultMode,
   CustomMockConfig,
   LiveAdCueState,
   MockScenarioType,
@@ -109,8 +111,12 @@ export function MockServerTab({ lanBaseUrl, sessionId, onInspectTag, onSendToRok
   const [cueDurationSec, setCueDurationSec] = useState<number>(10);
   const [cueBanner, setCueBanner] = useState<string>('');
 
+  // Chaos / Network Fault Injector state
+  const [chaos, setChaos] = useState<ChaosConfig>({ mode: 'none', delayMs: 0, dropAtHop: 2 });
+
   const refreshMocks = () => {
     api.getCustomMocks().then((d) => setCustomMocks(d.customMocks)).catch(() => {});
+    api.getChaos().then(setChaos).catch(() => {});
   };
 
   const refreshLiveState = () => {
@@ -233,6 +239,70 @@ export function MockServerTab({ lanBaseUrl, sessionId, onInspectTag, onSendToRok
             <strong>Live Cue Injected:</strong> {cueBanner}
           </div>
         )}
+      </div>
+
+      {/* Ad Chaos / Network Fault Injector */}
+      <div className="card">
+        <div className="card-header">
+          <h2 className="card-title">
+            <Zap size={16} /> Ad Chaos & Network Fault Injector (Black-Screen Hang Resilience)
+          </h2>
+          <span className={`pill mono ${chaos.mode === 'none' ? 'ok' : 'warn'}`}>
+            Active Fault: {chaos.mode.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="grid-2" style={{ alignItems: 'end' }}>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Proxy & Mock Server Fault Mode (applies globally or via ?chaos=)</label>
+            <select
+              value={chaos.mode}
+              onChange={async (e) => {
+                const nextMode = e.target.value as ChaosFaultMode;
+                const updated = await api.setChaos({
+                  mode: nextMode,
+                  delayMs: nextMode === 'latency' ? 3500 : 0,
+                  dropAtHop: chaos.dropAtHop,
+                });
+                setChaos(updated);
+              }}
+            >
+              <option value="none">None — Normal 200 OK Responses</option>
+              <option value="http-503">HTTP 503 Service Unavailable (Upstream Outage)</option>
+              <option value="http-429">HTTP 429 Too Many Requests (Rate Limited)</option>
+              <option value="corrupt-xml">Malformed / Truncated VAST XML Payload</option>
+              <option value="empty-vast-303">Empty VAST No-Fill (&lt;VAST/&gt; Error 303)</option>
+              <option value="drop-wrapper-hop">Drop Wrapper Hop #2 (Mid-Chain 503 Failure)</option>
+              <option value="media-500">MP4 Creative CDN HTTP 500 Failure</option>
+              <option value="latency">High Ad Server Latency (+3500ms)</option>
+              <option value="timeout-hang">Ad Server Socket Hang (9.5s Timeout)</option>
+            </select>
+          </div>
+          <div className="btn-row" style={{ justifyContent: 'flex-end' }}>
+            <button
+              className="btn"
+              onClick={async () => {
+                const reset = await api.setChaos({ mode: 'none', delayMs: 0, dropAtHop: 2 });
+                setChaos(reset);
+              }}
+            >
+              Reset Faults
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() =>
+                onSendToRoku(
+                  `${lanBaseUrl}/mock/vast/single-preroll.xml?session=${encodeURIComponent(sessionId)}&chaos=${
+                    chaos.mode === 'none' ? 'http-503' : chaos.mode
+                  }`,
+                  'csai'
+                )
+              }
+            >
+              <Send size={13} /> Test Chaos Fallback on Roku
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid-sidebar">

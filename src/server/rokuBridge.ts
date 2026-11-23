@@ -4,9 +4,11 @@ import net from 'node:net';
 import { XMLParser } from 'fast-xml-parser';
 import type { BeaconStore } from './beaconStore.js';
 import type {
+  ExternalChannelAttachRequest,
   RokuDeviceInfo,
   RokuLaunchRequest,
   RokuMediaPlayerState,
+  RokuPerfSnapshot,
   ScreenshotRecord,
 } from '../shared/types.js';
 
@@ -177,6 +179,207 @@ export async function launchTagOnRoku(
     signal: AbortSignal.timeout(4000),
   });
   return { endpoint, status: resp.status };
+}
+
+/**
+ * Launches or deep-links ANY sideloaded (`dev`) or installed Roku channel with standard Roku Certification 4.x
+ * parameters (`contentId`, `mediaType`, plus arbitrary query params) without overwriting the `dev` slot.
+ */
+export async function launchExternalChannelOnRoku(
+  req: ExternalChannelAttachRequest
+): Promise<{ endpoint: string; status: number; activeDevAppTitle?: string }> {
+  const ip = req.ip.trim();
+  const channelId = req.channelId || 'dev';
+  const q = new URLSearchParams({
+    contentId: req.contentId,
+    mediaType: req.mediaType,
+  });
+  if (req.sessionId) q.set('sessionId', req.sessionId);
+  for (const [k, v] of Object.entries(req.extraParams ?? {})) {
+    if (k.trim()) q.set(k.trim(), String(v));
+  }
+
+  const devSlot = await queryRokuInstalledDevApp(ip).catch(() => null);
+  const path = req.useInputIfRunning
+    ? `/input?${q.toString()}`
+    : `/launch/${encodeURIComponent(channelId)}?${q.toString()}`;
+  const endpoint = `http://${ip}:8060${path}`;
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    signal: AbortSignal.timeout(4000),
+  });
+  return {
+    endpoint,
+    status: resp.status,
+    activeDevAppTitle: devSlot?.devAppTitle,
+  };
+}
+
+export async function queryRokuInstalledDevApp(ip: string): Promise<{
+  hasDevApp: boolean;
+  devAppTitle?: string;
+  devAppVersion?: string;
+  activeAppTitle?: string;
+  isOurHarness: boolean;
+}> {
+  const cleanIp = ip.trim();
+  const [appsResp, activeResp] = await Promise.all([
+    fetch(`http://${cleanIp}:8060/query/apps`, { signal: AbortSignal.timeout(3000) }),
+    fetch(`http://${cleanIp}:8060/query/active-app`, { signal: AbortSignal.timeout(3000) }),
+  ]);
+
+  let devAppTitle: string | undefined;
+  let devAppVersion: string | undefined;
+  if (appsResp.ok) {
+    const appsXml = await appsResp.text();
+    const devMatch = appsXml.match(/<app\b([^>]*\bid="dev"[^>]*)>([\s\S]*?)<\/app>/i);
+    if (devMatch) {
+      devAppTitle = devMatch[2].trim();
+      const verMatch = devMatch[1].match(/\bversion="([^"]+)"/i);
+      devAppVersion = verMatch ? verMatch[1] : undefined;
+    }
+  }
+
+  let activeAppTitle: string | undefined;
+  if (activeResp.ok) {
+    const activeXml = await activeResp.text();
+    const actMatch = activeXml.match(/<app\b[^>]*>([\s\S]*?)<\/app>/i);
+    if (actMatch) activeAppTitle = actMatch[1].trim();
+  }
+
+  return {
+    hasDevApp: Boolean(devAppTitle),
+    devAppTitle,
+    devAppVersion,
+    activeAppTitle,
+    isOurHarness: Boolean(devAppTitle && /Roku RAF Ad Tool/i.test(devAppTitle)),
+  };
+}
+
+/**
+ * Connects to Roku OS Debug Server on TCP port :8080 and runs `chanperf`, `r2d2_bitmaps`, and `sgnodes all`
+ * to capture real-time Channel RAM (KiB/MB), CPU %, GPU Texture VRAM utilization, and SceneGraph node counts.
+ */
+export async function queryRokuPerformance8080(ip: string, timeoutMs = 2500): Promise<RokuPerfSnapshot> {
+  const cleanIp = ip.trim();
+  return new Promise((resolve) => {
+    const sock = net.createConnection({ host: cleanIp, port: 8080 });
+    let raw = '';
+    let finished = false;
+
+    const done = (snap: RokuPerfSnapshot) => {
+      if (finished) return;
+      finished = true;
+      sock.destroy();
+      resolve(snap);
+    };
+
+    sock.setTimeout(timeoutMs);
+
+    sock.once('connect', () => {
+      setTimeout(() => {
+        if (!finished) sock.write('chanperf\r\n');
+      }, 150);
+      setTimeout(() => {
+        if (!finished) sock.write('r2d2_bitmaps\r\n');
+      }, 350);
+      setTimeout(() => {
+        if (!finished) sock.write('sgnodes all\r\n');
+      }, 600);
+      setTimeout(() => {
+        const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        const banner = lines[0]?.replace(/^>+/, '').trim();
+
+        // Parse: channel: mem=33788KiB{anon=7772,file=17004,shared=9012,swap=0},%cpu=26{user=26,sys=0}
+        const perfMatch = raw.match(
+          /channel:\s*mem=(\d+)KiB\{anon=(\d+),file=(\d+),shared=(\d+)[^}]*\},%cpu=(\d+)\{user=(\d+),sys=(\d+)\}/i
+        );
+        const channelMemKib = perfMatch ? Number.parseInt(perfMatch[1], 10) : undefined;
+        const anonMemKib = perfMatch ? Number.parseInt(perfMatch[2], 10) : undefined;
+        const fileMemKib = perfMatch ? Number.parseInt(perfMatch[3], 10) : undefined;
+        const sharedMemKib = perfMatch ? Number.parseInt(perfMatch[4], 10) : undefined;
+        const cpuTotalPct = perfMatch ? Number.parseInt(perfMatch[5], 10) : undefined;
+        const cpuUserPct = perfMatch ? Number.parseInt(perfMatch[6], 10) : undefined;
+        const cpuSysPct = perfMatch ? Number.parseInt(perfMatch[7], 10) : undefined;
+
+        // Parse highest non-zero texture memory pool: Available texture memory 66052352 used 33947648 max 100000000
+        let textureAvailableBytes: number | undefined;
+        let textureUsedBytes: number | undefined;
+        let textureMaxBytes: number | undefined;
+        const texRegex = /Available texture memory\s+(\d+)\s+used\s+(\d+)\s+max\s+(\d+)/gi;
+        let tm: RegExpExecArray | null;
+        while ((tm = texRegex.exec(raw)) !== null) {
+          const avail = Number.parseInt(tm[1], 10);
+          const used = Number.parseInt(tm[2], 10);
+          const max = Number.parseInt(tm[3], 10);
+          if (textureUsedBytes === undefined || used > textureUsedBytes) {
+            textureAvailableBytes = avail;
+            textureUsedBytes = used;
+            textureMaxBytes = max;
+          }
+        }
+
+        // Parse sgnodes count
+        const nodeCountAttr = raw.match(/node-count="(\d+)"/i);
+        const openTagMatches = raw.match(/<[A-Z][A-Za-z0-9_]*\b/g);
+        const sgNodeCount = nodeCountAttr
+          ? Number.parseInt(nodeCountAttr[1], 10)
+          : openTagMatches
+            ? openTagMatches.length
+            : undefined;
+
+        done({
+          ip: cleanIp,
+          capturedAt: new Date().toISOString(),
+          reachable: true,
+          banner,
+          channelMemKib,
+          channelMemMb:
+            channelMemKib !== undefined ? Number((channelMemKib / 1024).toFixed(2)) : undefined,
+          anonMemKib,
+          fileMemKib,
+          sharedMemKib,
+          cpuTotalPct,
+          cpuUserPct,
+          cpuSysPct,
+          textureUsedBytes,
+          textureMaxBytes,
+          textureAvailableBytes,
+          textureUsedMb:
+            textureUsedBytes !== undefined
+              ? Number((textureUsedBytes / (1024 * 1024)).toFixed(2))
+              : undefined,
+          textureUtilizationPct:
+            textureUsedBytes !== undefined && textureMaxBytes && textureMaxBytes > 0
+              ? Number(((textureUsedBytes / textureMaxBytes) * 100).toFixed(1))
+              : undefined,
+          sgNodeCount,
+        });
+      }, 1250);
+    });
+
+    sock.on('data', (chunk: Buffer) => {
+      raw += chunk.toString('utf8');
+    });
+
+    sock.once('error', (err) => {
+      done({
+        ip: cleanIp,
+        capturedAt: new Date().toISOString(),
+        reachable: false,
+        error: err.message,
+      });
+    });
+
+    sock.once('timeout', () => {
+      done({
+        ip: cleanIp,
+        capturedAt: new Date().toISOString(),
+        reachable: false,
+        error: 'Port 8080 connection timed out',
+      });
+    });
+  });
 }
 
 function md5(input: string): string {

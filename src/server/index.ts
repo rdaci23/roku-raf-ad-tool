@@ -14,9 +14,12 @@ import { detectLanIp } from './networkInfo.js';
 import {
   captureRokuScreenshot,
   discoverRokuDevices,
+  launchExternalChannelOnRoku,
   launchTagOnRoku,
   queryRokuDeviceInfo,
+  queryRokuInstalledDevApp,
   queryRokuMediaPlayer,
+  queryRokuPerformance8080,
   RokuDebugConsoleBridge,
   sendRokuKeypress,
   sideloadChannelToRoku,
@@ -45,11 +48,15 @@ import { scanRokuChannelRepo } from '../shared/repoScanner.js';
 import {
   DEFAULT_RAF_RUNTIME_PREFS,
   type BeaconEventKind,
+  type ChaosConfig,
+  type ChaosFaultMode,
   type CustomMockConfig,
+  type ExternalChannelAttachRequest,
   type MockScenarioType,
   type RafMacroValues,
   type RafPlaybackMode,
   type RafRuntimePrefs,
+  type RokuAdPolicyContext,
   type RokuLaunchRequest,
   type SavedRokuDevice,
   type SessionSnapshot,
@@ -168,6 +175,115 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
   const consoleBridge = new RokuDebugConsoleBridge(beaconStore);
   const suiteRunner = new AutomatedSuiteRunner(beaconStore, db, consoleBridge, liveEngine);
   const configuredPort = options?.port ?? Number(process.env.PORT || 4321);
+  let activeChaos: ChaosConfig = { mode: 'none', delayMs: 0, dropAtHop: 2 };
+
+  function resolveChaosForRequest(parsedUrl: URL): ChaosConfig {
+    const queryMode = parsedUrl.searchParams.get('chaos') as ChaosFaultMode | null;
+    if (queryMode && queryMode !== 'none') {
+      return {
+        mode: queryMode,
+        delayMs: Number(parsedUrl.searchParams.get('delayMs') || (queryMode === 'latency' ? 3000 : 0)),
+        dropAtHop: Number(parsedUrl.searchParams.get('dropAtHop') || 2),
+      };
+    }
+    return activeChaos;
+  }
+
+  async function maybeInjectChaosResponse(opts: {
+    chaos: ChaosConfig;
+    hop: number;
+    sessionId: string;
+    reqUrl: string;
+    userAgent?: string;
+    remoteIp?: string;
+    res: ServerResponse;
+  }): Promise<boolean> {
+    const { chaos, hop, sessionId, reqUrl, userAgent, remoteIp, res } = opts;
+    if (chaos.mode === 'none') return false;
+
+    if (chaos.mode === 'latency' && chaos.delayMs > 0) {
+      await new Promise((r) => setTimeout(r, Math.min(15000, chaos.delayMs)));
+      return false;
+    }
+
+    if (chaos.mode === 'timeout-hang') {
+      beaconStore.record({
+        sessionId,
+        kind: 'tag_request',
+        eventName: 'CHAOS_INJECTED_TIMEOUT',
+        requestUrl: reqUrl,
+        userAgent,
+        remoteIp,
+      });
+      await new Promise((r) => setTimeout(r, 9500));
+      setCors(res);
+      res.writeHead(504, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Gateway Timeout (Chaos Injected)');
+      return true;
+    }
+
+    if (chaos.mode === 'http-503' || (chaos.mode === 'drop-wrapper-hop' && hop >= chaos.dropAtHop)) {
+      beaconStore.record({
+        sessionId,
+        kind: 'tag_request',
+        eventName: 'CHAOS_INJECTED_HTTP_503',
+        requestUrl: reqUrl,
+        userAgent,
+        remoteIp,
+      });
+      setCors(res);
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Service Unavailable (Chaos Injected)');
+      return true;
+    }
+
+    if (chaos.mode === 'http-429') {
+      beaconStore.record({
+        sessionId,
+        kind: 'tag_request',
+        eventName: 'CHAOS_INJECTED_HTTP_429',
+        requestUrl: reqUrl,
+        userAgent,
+        remoteIp,
+      });
+      setCors(res);
+      res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '5' });
+      res.end('Too Many Requests (Chaos Injected)');
+      return true;
+    }
+
+    if (chaos.mode === 'corrupt-xml') {
+      beaconStore.record({
+        sessionId,
+        kind: 'tag_request',
+        eventName: 'CHAOS_INJECTED_CORRUPT_XML',
+        requestUrl: reqUrl,
+        userAgent,
+        remoteIp,
+      });
+      sendXml(
+        res,
+        200,
+        '<?xml version="1.0" encoding="UTF-8"?><VAST version="4.0"><Ad id="corrupt-1"><InLine><AdSystem>TruncatedChaosStream'
+      );
+      return true;
+    }
+
+    if (chaos.mode === 'empty-vast-303') {
+      beaconStore.record({
+        sessionId,
+        kind: 'tag_request',
+        eventName: 'CHAOS_INJECTED_EMPTY_VAST',
+        requestUrl: reqUrl,
+        userAgent,
+        remoteIp,
+      });
+      sendXml(res, 200, '<?xml version="1.0" encoding="UTF-8"?><VAST version="4.0"/>');
+      return true;
+    }
+
+    return false;
+  }
 
   function registerXmlExpectations(sessionId: string, xml: string, url: string, podId = 'preroll'): void {
     const { parsed, xmlError } = parseAdXml(xml);
@@ -230,7 +346,24 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           defaultRafPrefs: DEFAULT_RAF_RUNTIME_PREFS,
           consoleStatus: consoleBridge.getStatus(),
           activeSuiteRun: suiteRunner.getActiveRun(),
+          chaos: activeChaos,
         });
+        return;
+      }
+
+      if (pathname === '/api/chaos' && req.method === 'GET') {
+        sendJson(res, 200, activeChaos);
+        return;
+      }
+
+      if (pathname === '/api/chaos' && req.method === 'POST') {
+        const body = await readJsonBody<Partial<ChaosConfig>>(req);
+        activeChaos = {
+          mode: (body.mode as ChaosFaultMode) || 'none',
+          delayMs: Number(body.delayMs ?? 0),
+          dropAtHop: Number(body.dropAtHop ?? 2),
+        };
+        sendJson(res, 200, activeChaos);
         return;
       }
 
@@ -240,6 +373,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           xml?: string;
           url?: string;
           macros?: Partial<RafMacroValues>;
+          policy?: RokuAdPolicyContext;
         }>(req);
 
         if (body.url && body.url.trim()) {
@@ -247,12 +381,13 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           const report = validateAdTag(unwrapped.rawXml, {
             preParsed: unwrapped.parsed,
             expandedUrl: unwrapped.expandedUrl,
+            policy: body.policy,
           });
           sendJson(res, 200, report);
           return;
         }
 
-        const report = validateAdTag(body.xml ?? '');
+        const report = validateAdTag(body.xml ?? '', { policy: body.policy });
         sendJson(res, 200, report);
         return;
       }
@@ -335,6 +470,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           events: beaconStore.getEvents(sessionId),
           toleranceSec,
           simulateLat,
+          rokuPerf8080: beaconStore.getPerf8080(sessionId),
         });
         sendJson(res, 200, audit);
         return;
@@ -469,14 +605,37 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
       }
 
       // --- 4. Tag Instrumentation Proxy ---
+      if (pathname === '/mock/chaos/media-500.mp4' && req.method === 'GET') {
+        setCors(res);
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Internal Server Error — Chaos Media 500');
+        return;
+      }
+
       if (pathname === '/proxy/tag' && req.method === 'GET') {
         const upstreamUrl = parsedUrl.searchParams.get('url');
         const sessionId = parsedUrl.searchParams.get('session') || 'proxy-session';
         const podId = parsedUrl.searchParams.get('podId') || 'proxied-pod';
+        const hop = Number(parsedUrl.searchParams.get('hop') || 1);
         const forwardUpstream = parsedUrl.searchParams.get('forward') === '1';
 
         if (!upstreamUrl) {
           sendJson(res, 400, { error: 'Missing ?url= query parameter' });
+          return;
+        }
+
+        const reqChaos = resolveChaosForRequest(parsedUrl);
+        if (
+          await maybeInjectChaosResponse({
+            chaos: reqChaos,
+            hop,
+            sessionId,
+            reqUrl: parsedUrl.toString(),
+            userAgent,
+            remoteIp,
+            res,
+          })
+        ) {
           return;
         }
 
@@ -500,12 +659,18 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
         });
         const upstreamXml = await upstreamResp.text();
         registerXmlExpectations(sessionId, upstreamXml, upstreamUrl, podId);
-        const instrumented = instrumentAdXmlForProxy(upstreamXml, {
+        let instrumented = instrumentAdXmlForProxy(upstreamXml, {
           baseUrl,
           sessionId,
           forwardUpstream,
           podId,
         });
+        if (reqChaos.mode === 'media-500') {
+          instrumented = instrumented.replace(
+            /<MediaFile(\b[^>]*)>[\s\S]*?<\/MediaFile>/gi,
+            (_m, attrs) => `<MediaFile${attrs}><![CDATA[${baseUrl}/mock/chaos/media-500.mp4]]></MediaFile>`
+          );
+        }
         sendXml(res, upstreamResp.status, instrumented);
         return;
       }
@@ -579,6 +744,21 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
             ? Number(parsedUrl.searchParams.get('delayMs') || 6000)
             : Number(parsedUrl.searchParams.get('delayMs') || 0);
 
+        const reqChaos = resolveChaosForRequest(parsedUrl);
+        if (
+          await maybeInjectChaosResponse({
+            chaos: reqChaos,
+            hop,
+            sessionId,
+            reqUrl: parsedUrl.toString(),
+            userAgent,
+            remoteIp,
+            res,
+          })
+        ) {
+          return;
+        }
+
         beaconStore.record({
           sessionId,
           kind: 'tag_request',
@@ -592,13 +772,19 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           await new Promise((r) => setTimeout(r, Math.min(15000, delayMs)));
         }
 
-        const xml = generateMockVastXml(slug, {
+        let xml = generateMockVastXml(slug, {
           baseUrl,
           sessionId,
           podId,
           wrapperDepth: depth,
           currentHop: hop,
         });
+        if (reqChaos.mode === 'media-500') {
+          xml = xml.replace(
+            /<MediaFile(\b[^>]*)>[\s\S]*?<\/MediaFile>/gi,
+            (_m, attrs) => `<MediaFile${attrs}><![CDATA[${baseUrl}/mock/chaos/media-500.mp4]]></MediaFile>`
+          );
+        }
         registerXmlExpectations(sessionId, xml, parsedUrl.toString(), podId);
         sendXml(res, 200, xml);
         return;
@@ -860,14 +1046,55 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
         }
         const info = await queryRokuDeviceInfo(ip);
         let player = null;
+        let devSlot = null;
         if (info.reachable) {
           try {
             player = await queryRokuMediaPlayer(ip);
           } catch {
             player = null;
           }
+          try {
+            devSlot = await queryRokuInstalledDevApp(ip);
+          } catch {
+            devSlot = null;
+          }
         }
-        sendJson(res, 200, { info, player, console: consoleBridge.getStatus() });
+        sendJson(res, 200, { info, player, devSlot, console: consoleBridge.getStatus() });
+        return;
+      }
+
+      if (pathname === '/api/roku/perf' && req.method === 'GET') {
+        const ip = parsedUrl.searchParams.get('ip');
+        const sessionId = parsedUrl.searchParams.get('session');
+        if (!ip) {
+          sendJson(res, 400, { error: 'Missing ?ip=' });
+          return;
+        }
+        const snap = await queryRokuPerformance8080(ip);
+        if (sessionId && snap.reachable) {
+          beaconStore.setPerf8080(sessionId, snap);
+        }
+        sendJson(res, 200, snap);
+        return;
+      }
+
+      if (pathname === '/api/roku/dev-slot' && req.method === 'GET') {
+        const ip = parsedUrl.searchParams.get('ip');
+        if (!ip) {
+          sendJson(res, 400, { error: 'Missing ?ip=' });
+          return;
+        }
+        const slot = await queryRokuInstalledDevApp(ip);
+        sendJson(res, 200, slot);
+        return;
+      }
+
+      if (pathname === '/api/roku/attach' && req.method === 'POST') {
+        const body = await readJsonBody<ExternalChannelAttachRequest>(req);
+        const sessionId = body.sessionId || 'roku-tv';
+        await consoleBridge.connect(body.ip, sessionId).catch(() => {});
+        const launched = await launchExternalChannelOnRoku({ ...body, sessionId });
+        sendJson(res, 200, launched);
         return;
       }
 
@@ -995,6 +1222,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           expected: expectedBeacons,
           events,
           toleranceSec: body.toleranceSec,
+          rokuPerf8080: beaconStore.getPerf8080(sessionId),
         });
         const snap: SessionSnapshot = {
           id: `snap-${randomUUID().slice(0, 8)}`,

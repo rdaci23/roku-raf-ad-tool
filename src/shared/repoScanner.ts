@@ -382,6 +382,23 @@ export function scanRokuChannelRepo(targetDir: string): RepoScanReport {
     });
   }
 
+  // Deep-linking Certification 4.1 check: contentId handled without mediaType
+  const allCodeJoined = brs.map((b) => b.lines.map(stripBrsComment).join('\n')).join('\n');
+  const handlesDeepLinkContentId = /\.(?:launchArgs|externalInput)\b[\s\S]{0,400}\bcontentId\b|\bargs\.contentId\b|\bparams\.contentId\b/i.test(
+    allCodeJoined
+  );
+  const handlesMediaType = /\bmediaType\b/i.test(allCodeJoined);
+  if (handlesDeepLinkContentId && !handlesMediaType) {
+    findings.push({
+      severity: 'warning',
+      code: 'DEEP_LINK_MISSING_MEDIATYPE',
+      title: 'Deep-link handler inspects contentId without mediaType (Roku Cert 4.1)',
+      file: brs.find((b) => /\bcontentId\b/i.test(b.content))?.relPath || 'source/Main.brs',
+      message: 'Channel reads deep-link contentId on launch/input without handling mediaType (movie, episode, live, shortFormVideo).',
+      fixHint: 'Inspect `params.mediaType` alongside `params.contentId` so live vs. shortFormVideo vs. long-form VOD ad policies are applied.',
+    });
+  }
+
   const errors = findings.filter((f) => f.severity === 'error').length;
   const warnings = findings.filter((f) => f.severity === 'warning').length;
   const infos = findings.filter((f) => f.severity === 'info').length;

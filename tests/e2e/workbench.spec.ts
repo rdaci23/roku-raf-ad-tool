@@ -27,6 +27,7 @@ test.describe('Roku RAF Ad Tool — 5-Tab Browser Workbench E2E', () => {
     await page.getByRole('button', { name: /2\. Live Mock, SSAI & DAI Studio/i }).click();
     await page.getByRole('button', { name: /Cue Live SCTE-35/i }).click();
     await expect(page.getByText(/Live Cue Injected:/i)).toBeVisible();
+    await expect(page.getByText(/Ad Chaos & Network Fault Injector/i)).toBeVisible();
 
     // Tab 3: Beacon Diff & Cert Auditor
     await page.getByRole('button', { name: /3\. Beacon Diff & Cert Auditor/i }).click();
@@ -37,6 +38,8 @@ test.describe('Roku RAF Ad Tool — 5-Tab Browser Workbench E2E', () => {
 
     // Tab 4: Roku Roster & Suite Runner
     await page.getByRole('button', { name: /4\. Roku Roster & Suite Runner/i }).click();
+    await expect(page.getByText(/Attach & Deep-Link Your Own Channel/i)).toBeVisible();
+    await expect(page.getByText(/Roku OS :8080 Memory & Texture VRAM Profiler/i)).toBeVisible();
     await expect(page.getByText(/4-Mode RAF Deep-Link Launcher/i)).toBeVisible();
     await expect(page.getByText(/Automated Scenario Suite Runner/i)).toBeVisible();
 

@@ -8,14 +8,23 @@ import { importHarArchive } from '../shared/harImporter.js';
 import { inspectStreamManifest } from '../shared/manifestInspector.js';
 import { validateAdTag } from '../shared/rafValidator.js';
 import { scanRokuChannelRepo } from '../shared/repoScanner.js';
-import { DEFAULT_RAF_RUNTIME_PREFS, type MockScenarioType, type RafPlaybackMode } from '../shared/types.js';
+import {
+  DEFAULT_RAF_RUNTIME_PREFS,
+  type ChaosFaultMode,
+  type MockScenarioType,
+  type RafPlaybackMode,
+  type RokuAdPolicyContext,
+  type RokuMediaType,
+} from '../shared/types.js';
 import { auditVendorAdRequestUrl } from '../shared/vendorTemplates.js';
 import { buildRokuChannelZip } from '../server/channelPackager.js';
 import { detectLanIp } from '../server/networkInfo.js';
 import {
   captureRokuScreenshot,
   discoverRokuDevices,
+  launchExternalChannelOnRoku,
   queryRokuDeviceInfo,
+  queryRokuPerformance8080,
   sideloadChannelToRoku,
 } from '../server/rokuBridge.js';
 import { fetchAndUnwrapAdTag } from '../server/tagProxy.js';
@@ -83,13 +92,23 @@ Usage:
 
 Commands:
   status [--ip <roku-ip>]                       Server, LAN URL & Roku device status
+  perf [--ip <roku-ip>]                         Query :8080 Channel RAM, CPU %, Texture VRAM & SG nodes
   scan-repo [channel-dir]                       Statically scan BrightScript/SceneGraph channel for RAF issues
-  validate <url-or-xml-file>                    Validate VAST/VMAP/SmartXML tag & unroll wrappers
+  validate <url-or-xml-file>                    Validate VAST/VMAP/SmartXML tag & Roku Ad-Load policies
+      --media-type <type>       movie | episode | shortFormVideo | live
+      --content-length <sec>    Content duration in seconds for midroll policy checks
   inspect-manifest <url-or-manifest-file>       Inspect HLS (.m3u8) or DASH (.mpd) + SCTE-35 cues
   audit-url <ad-request-url>                    Audit GAM/DAI/SpringServe/Publica/FreeWheel URL params
   brs --mode <mode> --url <tag-url>             Generate BrightScript Roku_Ads.brs integration snippet
+  chaos --mode <fault> [--delay <ms>]           Inject proxy/mock faults (none | http-503 | corrupt-xml | timeout-hang | ...)
   cue-live [--session <id>] [--duration <sec>]  Cue an immediate SCTE-35 ad break on Live HLS stream
   sideload [--ip <roku-ip>] [--password <pw>]   Package & sideload roku-channel/ to Roku device
+  attach [options]                              Launch/deep-link YOUR OWN channel in dev without sideloading
+      --channel <id>            Channel ID (default: dev)
+      --content-id <id>         Deep-link contentId (default: ep-101)
+      --media-type <type>       movie | episode | shortFormVideo | live
+      --hot                     Send warm /input event instead of cold /launch
+      --duration <sec>          Seconds to monitor :8085 & :8080 (default: 12)
   screenshot [--ip <roku-ip>] [--out <file>]    Capture Roku TV screenshot via /plugin_inspect
   run [options]                                 Run end-to-end ad test on physical Roku & audit beacons
       --ip <roku-ip>            Target Roku IP (default from .env or SSDP)
@@ -99,7 +118,7 @@ Commands:
       --mode <raf-mode>         csai | csai-stitched | csai-skippable | ssai | ssai-live | google-dai
       --timeout <sec>           Max wait seconds (default: 28)
       --screenshot              Capture mid-playback Roku screenshot
-  suite [--ip <ip>] [--simulate] [--cases a,b]  Run 18-case Certification Suite & print scorecard
+  suite [--ip <ip>] [--simulate] [--cases a,b]  Run 20-case Certification Suite & print scorecard
   har <file.har> [--name <label>]               Import & audit Charles / mitmproxy .har capture
 
 Global Flags:
@@ -154,19 +173,118 @@ async function main() {
     return;
   }
 
+  if (cmd === 'perf') {
+    await requireRokuIp();
+    const perf = await queryRokuPerformance8080(defaultIp);
+    output(perf, asJson, () =>
+      perf.reachable
+        ? [
+            `Device (:8080) : ${perf.banner || perf.ip}`,
+            `Channel RAM    : ${perf.channelMemMb ?? 'n/a'} MB (${perf.channelMemKib ?? 'n/a'} KiB | anon=${perf.anonMemKib ?? 0} KiB)`,
+            `Channel CPU    : ${perf.cpuTotalPct ?? 'n/a'}% (user=${perf.cpuUserPct ?? 0}%, sys=${perf.cpuSysPct ?? 0}%)`,
+            `Texture VRAM   : ${perf.textureUsedMb ?? 'n/a'} MB used (${perf.textureUtilizationPct ?? 'n/a'}% of ${
+              perf.textureMaxBytes ? Math.round(perf.textureMaxBytes / (1024 * 1024)) : '?'
+            } MB pool)`,
+            `SG Node Count  : ${perf.sgNodeCount ?? 'n/a'}`,
+          ].join('\n')
+        : `Port :8080 unreachable on ${defaultIp}: ${perf.error}`
+    );
+    process.exit(perf.reachable ? 0 : 1);
+  }
+
+  if (cmd === 'chaos') {
+    const mode = (flags.mode as ChaosFaultMode) || (positional[1] as ChaosFaultMode) || 'none';
+    const delayMs = Number(flags.delay || 0);
+    const dropAtHop = Number(flags.hop || 2);
+    const resp = await fetch(`${apiBase}/api/chaos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, delayMs, dropAtHop }),
+    }).then((r) => r.json());
+    output(resp, asJson, () => `Active Chaos Fault Mode -> ${resp.mode} (delayMs=${resp.delayMs}, dropAtHop=${resp.dropAtHop})`);
+    return;
+  }
+
+  if (cmd === 'attach') {
+    await requireRokuIp();
+    const channelId = String(flags.channel || 'dev');
+    const contentId = String(flags['content-id'] || flags.contentId || 'ep-101-pilot');
+    const mediaType = (flags['media-type'] || flags.mediaType || 'episode') as RokuMediaType;
+    const sessionId = String(flags.session || `attach-${Date.now().toString(36)}`);
+    const durationSec = Number(flags.duration || 12);
+
+    await fetch(`${apiBase}/api/roku/console/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: defaultIp, sessionId }),
+    }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 450));
+    await fetch(`${apiBase}/api/beacons/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    }).catch(() => {});
+
+    const launched = await launchExternalChannelOnRoku({
+      ip: defaultIp,
+      channelId,
+      contentId,
+      mediaType,
+      useInputIfRunning: Boolean(flags.hot),
+      sessionId,
+    });
+
+    await new Promise((r) => setTimeout(r, Math.max(2000, durationSec * 1000)));
+    const perf8080 = await fetch(
+      `${apiBase}/api/roku/perf?ip=${encodeURIComponent(defaultIp)}&session=${encodeURIComponent(sessionId)}`
+    )
+      .then((r) => r.json())
+      .catch(() => null);
+    const audit = await fetch(`${apiBase}/api/audit?session=${encodeURIComponent(sessionId)}&toleranceSec=2.5`).then(
+      (r) => r.json()
+    );
+    const result = {
+      sessionId,
+      channelId,
+      activeDevAppTitle: launched.activeDevAppTitle,
+      endpoint: launched.endpoint,
+      launchStatus: launched.status,
+      certScore: audit.certScore,
+      perf8080,
+      timingMetrics: audit.timingMetrics,
+      certChecks: audit.certChecks,
+    };
+    output(result, asJson, () =>
+      [
+        `Attached Channel : ${launched.activeDevAppTitle || channelId} (HTTP ${launched.status} via ${launched.endpoint})`,
+        `Cert Score       : ${result.certScore}/100`,
+        `Memory / VRAM    : RAM=${perf8080?.channelMemMb ?? 'n/a'} MB | VRAM=${perf8080?.textureUsedMb ?? 'n/a'} MB (${perf8080?.textureUtilizationPct ?? 'n/a'}%) | CPU=${perf8080?.cpuTotalPct ?? 'n/a'}%`,
+      ].join('\n')
+    );
+    return;
+  }
+
   if (cmd === 'validate') {
     const target = positional[1] || String(flags.url || '');
     if (!target) throw new Error('Usage: raf validate <url-or-xml-file>');
+    const policy: RokuAdPolicyContext | undefined =
+      flags['media-type'] || flags['content-length']
+        ? {
+            mediaType: flags['media-type'] ? (String(flags['media-type']) as RokuMediaType) : undefined,
+            contentLengthSec: flags['content-length'] ? Number(flags['content-length']) : undefined,
+          }
+        : undefined;
     let report;
     if (/^https?:\/\//i.test(target)) {
       const unwrapped = await fetchAndUnwrapAdTag(target);
       report = validateAdTag(unwrapped.rawXml, {
         preParsed: unwrapped.parsed,
         expandedUrl: unwrapped.expandedUrl,
+        policy,
       });
     } else {
       const xml = readFileSync(resolve(target), 'utf8');
-      report = validateAdTag(xml);
+      report = validateAdTag(xml, { policy });
     }
     output(report, asJson, () =>
       [

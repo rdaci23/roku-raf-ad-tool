@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  AdTimingMetrics,
   BeaconAuditReport,
   BeaconDiffItem,
   BeaconEvent,
   CertCheckResult,
   ExpectedBeaconSpec,
   ParsedAdTag,
+  RokuPerfSnapshot,
 } from './types.js';
 
 const QUARTILE_FRACTIONS: Record<string, number> = {
@@ -128,6 +130,7 @@ export function runBeaconAndCertAudit(opts: {
   events: BeaconEvent[];
   toleranceSec?: number;
   simulateLat?: boolean;
+  rokuPerf8080?: RokuPerfSnapshot;
 }): BeaconAuditReport {
   const toleranceSec = opts.toleranceSec ?? 1.5;
   const sessionEvents = opts.events.filter((e) => e.sessionId === opts.sessionId);
@@ -394,6 +397,45 @@ export function runBeaconAndCertAudit(opts: {
     });
   }
 
+  // Compute Ad Startup & TTFF Timing Metrics
+  const timingMetrics: AdTimingMetrics = {};
+  const fetchTagEv =
+    telemetryEvents.find((t) => t.eventName === 'FETCH_TAG') ?? tagRequests[0];
+  const podsParsedEv = telemetryEvents.find((t) => t.eventName === 'PODS_PARSED');
+  if (fetchTagEv && podsParsedEv && podsParsedEv.epochMs >= fetchTagEv.epochMs) {
+    timingMetrics.tagFetchLatencyMs = podsParsedEv.epochMs - fetchTagEv.epochMs;
+  }
+
+  const prerollStartEv =
+    telemetryEvents.find((t) => /PREROLL_START|CSAI_STITCH_RENDER|SSAI_INIT/i.test(t.eventName)) ??
+    fetchTagEv;
+  const firstRenderHit = beaconHits.find((b) =>
+    ['impression', 'start'].includes(b.eventName.toLowerCase())
+  );
+  if (prerollStartEv && firstRenderHit && firstRenderHit.epochMs >= prerollStartEv.epochMs) {
+    timingMetrics.adTtffMs = firstRenderHit.epochMs - prerollStartEv.epochMs;
+  }
+
+  for (const line of consoleLines) {
+    const vodMatch = line.match(/\|VODStartComplete\s*-+>\s*Duration\((\d+)\s*ms\)/i);
+    if (vodMatch) {
+      timingMetrics.vodStartDurationMs = Number.parseInt(vodMatch[1], 10);
+      break;
+    }
+  }
+
+  // 9. Optional :8080 Texture Memory / VRAM Headroom Check
+  if (opts.rokuPerf8080?.reachable && opts.rokuPerf8080.textureUtilizationPct !== undefined) {
+    const highVram = opts.rokuPerf8080.textureUtilizationPct > 85;
+    certChecks.push({
+      id: 'roku-vram-headroom',
+      category: 'lifecycle',
+      title: 'Roku SceneGraph Texture VRAM & RAM Headroom (:8080)',
+      status: highVram ? 'warn' : 'pass',
+      detail: `Channel RAM: ${opts.rokuPerf8080.channelMemMb ?? '?'} MB | Texture VRAM: ${opts.rokuPerf8080.textureUsedMb ?? '?'} MB (${opts.rokuPerf8080.textureUtilizationPct}%) | CPU: ${opts.rokuPerf8080.cpuTotalPct ?? '?'}%`,
+    });
+  }
+
   const matchedCount = diffItems.filter((d) => d.status === 'matched').length;
   const missingCount = diffItems.filter((d) => d.status === 'missing').length;
   const duplicateCount = diffItems.filter((d) => d.status === 'duplicate').length;
@@ -417,5 +459,7 @@ export function runBeaconAndCertAudit(opts: {
     unexpectedEvents,
     diffItems,
     certChecks,
+    timingMetrics,
+    rokuPerf8080: opts.rokuPerf8080,
   };
 }

@@ -336,6 +336,70 @@ export interface BeaconAuditReport {
   unexpectedEvents: BeaconEvent[];
   diffItems: BeaconDiffItem[];
   certChecks: CertCheckResult[];
+  timingMetrics?: AdTimingMetrics;
+  rokuPerf8080?: RokuPerfSnapshot;
+}
+
+export interface AdTimingMetrics {
+  tagFetchLatencyMs?: number;
+  adTtffMs?: number;
+  vodStartDurationMs?: number;
+}
+
+export interface RokuPerfSnapshot {
+  ip: string;
+  capturedAt: string;
+  reachable: boolean;
+  banner?: string;
+  channelMemKib?: number;
+  channelMemMb?: number;
+  anonMemKib?: number;
+  fileMemKib?: number;
+  sharedMemKib?: number;
+  cpuTotalPct?: number;
+  cpuUserPct?: number;
+  cpuSysPct?: number;
+  textureUsedBytes?: number;
+  textureMaxBytes?: number;
+  textureAvailableBytes?: number;
+  textureUsedMb?: number;
+  textureUtilizationPct?: number;
+  sgNodeCount?: number;
+  error?: string;
+}
+
+export type ChaosFaultMode =
+  | 'none'
+  | 'latency'
+  | 'http-503'
+  | 'http-429'
+  | 'timeout-hang'
+  | 'corrupt-xml'
+  | 'empty-vast-303'
+  | 'drop-wrapper-hop'
+  | 'media-500';
+
+export interface ChaosConfig {
+  mode: ChaosFaultMode;
+  delayMs: number;
+  dropAtHop: number;
+}
+
+export type RokuMediaType = 'movie' | 'episode' | 'shortFormVideo' | 'live' | 'season' | 'special';
+
+export interface RokuAdPolicyContext {
+  contentLengthSec?: number;
+  mediaType?: RokuMediaType;
+}
+
+export interface ExternalChannelAttachRequest {
+  ip: string;
+  channelId?: string;
+  contentId: string;
+  mediaType: RokuMediaType;
+  useInputIfRunning?: boolean;
+  extraParams?: Record<string, string>;
+  sessionId?: string;
 }
 
 // --- Mock Server, Live HLS & DAI ---

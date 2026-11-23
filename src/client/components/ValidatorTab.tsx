@@ -20,6 +20,7 @@ import type {
   RafMacroValues,
   RafPlaybackMode,
   RafRuntimePrefs,
+  RokuMediaType,
   ValidationReport,
   VendorBuildParams,
   VendorId,
@@ -85,6 +86,8 @@ export function ValidatorTab({
   const [rawXml, setRawXml] = useState<string>(SAMPLE_INLINE_XML);
   const [showMacros, setShowMacros] = useState<boolean>(false);
   const [macros, setMacros] = useState<Partial<RafMacroValues>>({});
+  const [policyMediaType, setPolicyMediaType] = useState<string>('');
+  const [policyLengthSec, setPolicyLengthSec] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
@@ -141,10 +144,17 @@ export function ValidatorTab({
     setError(null);
     try {
       const target = overrideUrl ?? tagUrl;
+      const policy =
+        policyMediaType || policyLengthSec
+          ? {
+              mediaType: policyMediaType ? (policyMediaType as RokuMediaType) : undefined,
+              contentLengthSec: policyLengthSec ? Number(policyLengthSec) : undefined,
+            }
+          : undefined;
       const res =
         mode === 'url' || overrideUrl
-          ? await api.validate({ url: target, macros })
-          : await api.validate({ xml: rawXml });
+          ? await api.validate({ url: target, macros, policy })
+          : await api.validate({ xml: rawXml, policy });
       setReport(res);
       const firstPlayable = res.parsed.ads
         .flatMap((a) => a.linears)
@@ -282,7 +292,7 @@ export function ValidatorTab({
                   Paste Raw XML
                 </button>
                 <button className="btn btn-sm" onClick={() => setShowMacros((s) => !s)}>
-                  <Sliders size={13} /> RAF Macros
+                  <Sliders size={13} /> RAF Macros & Ad-Load Policy
                 </button>
               </div>
             </div>
@@ -399,6 +409,27 @@ export function ValidatorTab({
 
             {showMacros && (
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                <div className="grid-2" style={{ marginBottom: 12 }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Roku Ad-Load Policy: Content mediaType</label>
+                    <select value={policyMediaType} onChange={(e) => setPolicyMediaType(e.target.value)}>
+                      <option value="">(Unconstrained / Generic Test)</option>
+                      <option value="episode">episode (Long-Form Episodic)</option>
+                      <option value="movie">movie (Long-Form Feature)</option>
+                      <option value="shortFormVideo">shortFormVideo (&lt;15m — Midrolls Prohibited)</option>
+                      <option value="live">live (Linear Stream)</option>
+                    </select>
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Content Duration (seconds, for midroll spacing & short-form check)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 600 for 10m clip, 2700 for 45m episode"
+                      value={policyLengthSec}
+                      onChange={(e) => setPolicyLengthSec(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="grid-2">
                   {Object.entries(macros).map(([k, v]) => (
                     <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

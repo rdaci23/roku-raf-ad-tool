@@ -9,15 +9,18 @@ OpenAPI Spec: ${baseUrl}/api/openapi.json
 ## Quick CLI Commands (Human + AI \`--json\` mode)
 
 - \`raf status --json\` — Server, LAN IP, console & active suite status
+- \`raf perf --ip <roku-ip> --json\` — Live :8080 Channel RAM (MB), CPU %, Texture VRAM %, and SceneGraph node count
 - \`raf scan-repo "<channel-dir>" --json\` — Static BrightScript / SceneGraph RAF certification & OS 16 crash scanner
-- \`raf validate "<url-or-xml-file>" --json\` — VAST 2.0-4.2 / VMAP 1.0 / SmartXML RAF validation + wrapper unrolling
+- \`raf validate "<url-or-xml-file>" [--media-type shortFormVideo] [--content-length 600] --json\` — VAST / VMAP / SmartXML + Roku Ad-Load Policy validation
 - \`raf inspect-manifest "<m3u8-or-mpd-url-or-file>" --json\` — HLS / MPEG-DASH + SCTE-35 / DATERANGE inspection
 - \`raf audit-url "<ad-request-url>" --json\` — GAM / DAI / SpringServe / Publica / FreeWheel RIDA & privacy parameter audit
-- \`raf brs --mode csai-stitched --url "<tag-url>"\` — Generate SceneGraph + Roku_Ads.brs code
+- \`raf brs --mode csai-skippable --url "<tag-url>"\` — Generate SceneGraph + Roku_Ads.brs code
+- \`raf chaos --mode http-503 --json\` — Inject ad server faults (none | http-503 | http-429 | corrupt-xml | empty-vast-303 | drop-wrapper-hop | media-500 | latency | timeout-hang)
+- \`raf attach --ip <roku-ip> --content-id ep-101 --media-type episode --json\` — Deep-link & audit your own channel in dev without sideloading
 - \`raf sideload --ip <roku-ip>\` — Package & sideload the Roku RAF channel harness
 - \`raf run --ip <roku-ip> --scenario single-preroll --mode csai --screenshot --json\` — Autonomous end-to-end Roku hardware run + Expected-vs-Actual beacon diff + Certification audit
 - \`raf cue-live --session roku-tv --duration 10 --json\` — Inject live SCTE-35 / #EXT-X-DATERANGE ad break into sliding-window HLS stream
-- \`raf suite --ip <roku-ip> --json\` — Run 18-scenario certification suite (add \`--simulate\` when no Roku is attached)
+- \`raf suite --ip <roku-ip> --json\` — Run 20-scenario certification & chaos resilience suite (add \`--simulate\` when no Roku is attached)
 - \`raf har ./capture.har --json\` — Import & audit Charles / mitmproxy .har file
 
 ## MCP Server (Stdio)

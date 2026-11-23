@@ -112,7 +112,7 @@ describe('MCP Stdio Server (Newline & Content-Length Framing)', () => {
     expect((responses[0].result as { serverInfo: { name: string } }).serverInfo.name).toBe('roku-raf-ad-tool');
 
     const toolsList = (responses[1].result as { tools: Array<{ name: string }> }).tools;
-    expect(toolsList.length).toBeGreaterThanOrEqual(10);
+    expect(toolsList.length).toBeGreaterThanOrEqual(13);
 
     const auditContent = JSON.parse(
       (responses[2].result as { content: Array<{ text: string }> }).content[0].text

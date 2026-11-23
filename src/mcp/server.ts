@@ -6,10 +6,21 @@ import { importHarArchive } from '../shared/harImporter.js';
 import { inspectStreamManifest } from '../shared/manifestInspector.js';
 import { validateAdTag } from '../shared/rafValidator.js';
 import { scanRokuChannelRepo } from '../shared/repoScanner.js';
-import { DEFAULT_RAF_RUNTIME_PREFS, type RafPlaybackMode } from '../shared/types.js';
+import {
+  DEFAULT_RAF_RUNTIME_PREFS,
+  type ChaosFaultMode,
+  type RafPlaybackMode,
+  type RokuAdPolicyContext,
+  type RokuMediaType,
+} from '../shared/types.js';
 import { auditVendorAdRequestUrl } from '../shared/vendorTemplates.js';
 import { detectLanIp } from '../server/networkInfo.js';
-import { captureRokuScreenshot, queryRokuDeviceInfo } from '../server/rokuBridge.js';
+import {
+  captureRokuScreenshot,
+  launchExternalChannelOnRoku,
+  queryRokuDeviceInfo,
+  queryRokuPerformance8080,
+} from '../server/rokuBridge.js';
 import { fetchAndUnwrapAdTag } from '../server/tagProxy.js';
 
 interface JsonRpcRequest {
@@ -27,12 +38,21 @@ const TOOLS = [
   {
     name: 'validate_ad_tag',
     description:
-      'Validate a VAST (2.0-4.2) or VMAP (1.0) XML string or remote URL against Roku Advertising Framework (RAF) rules, unrolling Wrapper chains.',
+      'Validate a VAST (2.0-4.2), VMAP (1.0), or FreeWheel SmartXML string or remote URL against Roku RAF & Roku Ad-Load Certification policies, unrolling Wrapper chains.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'Remote or local VAST/VMAP tag URL to fetch and unwrap' },
-        xml: { type: 'string', description: 'Raw VAST or VMAP XML string (if not passing url)' },
+        url: { type: 'string', description: 'Remote or local VAST/VMAP/SmartXML tag URL to fetch and unwrap' },
+        xml: { type: 'string', description: 'Raw VAST, VMAP, or SmartXML string (if not passing url)' },
+        mediaType: {
+          type: 'string',
+          enum: ['movie', 'episode', 'shortFormVideo', 'live', 'season', 'special'],
+          description: 'Optional Roku content mediaType for short-form / midroll spacing policy checks',
+        },
+        contentLengthSec: {
+          type: 'number',
+          description: 'Optional content duration in seconds for Roku Ad-Load Certification policy checks',
+        },
       },
     },
   },
@@ -143,18 +163,84 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'roku_performance_profile',
+    description:
+      'Query Roku OS Debug Server (:8080) chanperf, r2d2_bitmaps, and sgnodes for live Channel RAM (MB), CPU %, GPU Texture VRAM utilization %, and SceneGraph node count.',
+    inputSchema: {
+      type: 'object',
+      required: ['ip'],
+      properties: {
+        ip: { type: 'string', description: 'Roku LAN IPv4 address' },
+      },
+    },
+  },
+  {
+    name: 'attach_external_roku_channel',
+    description:
+      'Deep-link launch (/launch) or warm input (/input) into ANY sideloaded dev or installed Roku channel with contentId & mediaType without overwriting the dev slot.',
+    inputSchema: {
+      type: 'object',
+      required: ['ip', 'contentId', 'mediaType'],
+      properties: {
+        ip: { type: 'string' },
+        channelId: { type: 'string', default: 'dev' },
+        contentId: { type: 'string' },
+        mediaType: {
+          type: 'string',
+          enum: ['movie', 'episode', 'shortFormVideo', 'live', 'season', 'special'],
+        },
+        useInputIfRunning: { type: 'boolean', default: false },
+      },
+    },
+  },
+  {
+    name: 'configure_chaos_fault',
+    description:
+      'Configure Ad Chaos / Network Fault injection on local /proxy/tag and Mock endpoints to test Roku channel resilience against ad server outages.',
+    inputSchema: {
+      type: 'object',
+      required: ['mode'],
+      properties: {
+        mode: {
+          type: 'string',
+          enum: [
+            'none',
+            'latency',
+            'http-503',
+            'http-429',
+            'timeout-hang',
+            'corrupt-xml',
+            'empty-vast-303',
+            'drop-wrapper-hop',
+            'media-500',
+          ],
+        },
+        delayMs: { type: 'number', default: 0 },
+        dropAtHop: { type: 'number', default: 2 },
+      },
+    },
+  },
 ];
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === 'validate_ad_tag') {
+    const policy: RokuAdPolicyContext | undefined =
+      args.mediaType || args.contentLengthSec
+        ? {
+            mediaType: args.mediaType ? (String(args.mediaType) as RokuMediaType) : undefined,
+            contentLengthSec: args.contentLengthSec ? Number(args.contentLengthSec) : undefined,
+          }
+        : undefined;
     if (typeof args.url === 'string' && args.url) {
       const unwrapped = await fetchAndUnwrapAdTag(args.url);
       return validateAdTag(unwrapped.rawXml, {
         preParsed: unwrapped.parsed,
         expandedUrl: unwrapped.expandedUrl,
+        policy,
       });
     }
-    return validateAdTag(String(args.xml || ''));
+    return validateAdTag(String(args.xml || ''), { policy });
   }
 
   if (name === 'inspect_stream_manifest') {
@@ -219,6 +305,33 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
 
   if (name === 'scan_roku_channel_repo') {
     return scanRokuChannelRepo(resolve(String(args.path)));
+  }
+
+  if (name === 'roku_performance_profile') {
+    return queryRokuPerformance8080(String(args.ip));
+  }
+
+  if (name === 'attach_external_roku_channel') {
+    return launchExternalChannelOnRoku({
+      ip: String(args.ip),
+      channelId: args.channelId ? String(args.channelId) : 'dev',
+      contentId: String(args.contentId),
+      mediaType: (args.mediaType as RokuMediaType) || 'episode',
+      useInputIfRunning: Boolean(args.useInputIfRunning),
+    });
+  }
+
+  if (name === 'configure_chaos_fault') {
+    const resp = await fetch(`${API_BASE}/api/chaos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: (args.mode as ChaosFaultMode) || 'none',
+        delayMs: Number(args.delayMs || 0),
+        dropAtHop: Number(args.dropAtHop || 2),
+      }),
+    });
+    return resp.json();
   }
 
   throw new Error(`Unknown MCP tool: ${name}`);

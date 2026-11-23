@@ -6,6 +6,7 @@ import type {
   BeaconEvent,
   BeaconEventKind,
   ExpectedBeaconSpec,
+  RokuPerfSnapshot,
   ScreenshotRecord,
 } from '../shared/types.js';
 
@@ -17,6 +18,7 @@ export class BeaconStore {
   private progressMap = new Map<string, AdQuartileProgress>();
   private expectedBySession = new Map<string, ExpectedBeaconSpec[]>();
   private screenshotsBySession = new Map<string, ScreenshotRecord[]>();
+  private perf8080BySession = new Map<string, RokuPerfSnapshot>();
   private lastServedPayloadBySession = new Map<string, { url?: string; rawText?: string }>();
   private sseClients = new Set<ServerResponse>();
 
@@ -67,6 +69,15 @@ export class BeaconStore {
       return Array.from(this.screenshotsBySession.values()).flat();
     }
     return [...(this.screenshotsBySession.get(sessionId) ?? [])];
+  }
+
+  public setPerf8080(sessionId: string, snap: RokuPerfSnapshot): void {
+    const sid = sessionId?.trim() || 'default';
+    this.perf8080BySession.set(sid, snap);
+  }
+
+  public getPerf8080(sessionId: string): RokuPerfSnapshot | undefined {
+    return this.perf8080BySession.get(sessionId || 'default');
   }
 
   public record(input: {

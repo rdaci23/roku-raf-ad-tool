@@ -137,5 +137,13 @@ describe('Roku RAF Ad Tool v2 HTTP Server Integration', () => {
     const buf = Buffer.from(await zipResp.arrayBuffer());
     expect(buf[0]).toBe(0x50);
     expect(buf[1]).toBe(0x4b);
+
+    // Verify Ad Chaos Fault Injector (503 & corrupt-xml)
+    const chaos503 = await fetch(`${baseUrl}/mock/vast/single-preroll.xml?session=c1&chaos=http-503`);
+    expect(chaos503.status).toBe(503);
+
+    const chaosCorrupt = await fetch(`${baseUrl}/mock/vast/single-preroll.xml?session=c2&chaos=corrupt-xml`);
+    expect(chaosCorrupt.status).toBe(200);
+    expect(await chaosCorrupt.text()).toContain('TruncatedChaosStream');
   });
 });

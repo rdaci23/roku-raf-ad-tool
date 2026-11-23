@@ -3,15 +3,19 @@ import type {
   AdQuartileProgress,
   BeaconAuditReport,
   BeaconEvent,
+  ChaosConfig,
   CustomMockConfig,
+  ExternalChannelAttachRequest,
   LiveAdCueState,
   ManifestInspectionReport,
   RafMacroValues,
   RafPlaybackMode,
   RafRuntimePrefs,
+  RokuAdPolicyContext,
   RokuDeviceInfo,
   RokuLaunchRequest,
   RokuMediaPlayerState,
+  RokuPerfSnapshot,
   SavedRokuDevice,
   ScreenshotRecord,
   SessionSnapshot,
@@ -50,10 +54,23 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   getInfo: () => requestJson<ServerInfoResponse>('/api/info'),
 
-  validate: (payload: { xml?: string; url?: string; macros?: Partial<RafMacroValues> }) =>
+  validate: (payload: {
+    xml?: string;
+    url?: string;
+    macros?: Partial<RafMacroValues>;
+    policy?: RokuAdPolicyContext;
+  }) =>
     requestJson<ValidationReport>('/api/validate', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  getChaos: () => requestJson<ChaosConfig>('/api/chaos'),
+
+  setChaos: (cfg: Partial<ChaosConfig>) =>
+    requestJson<ChaosConfig>('/api/chaos', {
+      method: 'POST',
+      body: JSON.stringify(cfg),
     }),
 
   inspectManifest: (payload: { text?: string; url?: string }) =>
@@ -179,8 +196,26 @@ export const api = {
     requestJson<{
       info: RokuDeviceInfo;
       player: RokuMediaPlayerState | null;
+      devSlot?: {
+        hasDevApp: boolean;
+        devAppTitle?: string;
+        devAppVersion?: string;
+        activeAppTitle?: string;
+        isOurHarness: boolean;
+      } | null;
       console: { connected: boolean; ip: string | null };
     }>(`/api/roku/device-info?ip=${encodeURIComponent(ip)}`),
+
+  getRokuPerf: (ip: string, sessionId?: string) =>
+    requestJson<RokuPerfSnapshot>(
+      `/api/roku/perf?ip=${encodeURIComponent(ip)}${sessionId ? `&session=${encodeURIComponent(sessionId)}` : ''}`
+    ),
+
+  attachExternalChannel: (payload: ExternalChannelAttachRequest) =>
+    requestJson<{ endpoint: string; status: number; activeDevAppTitle?: string }>('/api/roku/attach', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   sendKeypress: (ip: string, key: string) =>
     requestJson<{ ok: boolean }>('/api/roku/keypress', {

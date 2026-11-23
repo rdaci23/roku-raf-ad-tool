@@ -21,6 +21,8 @@ import type {
   RafRuntimePrefs,
   RokuDeviceInfo,
   RokuMediaPlayerState,
+  RokuMediaType,
+  RokuPerfSnapshot,
   SavedRokuDevice,
   ScreenshotRecord,
   SuiteCaseSpec,
@@ -61,6 +63,12 @@ export function RokuDeviceTab({
   const [discovering, setDiscovering] = useState<boolean>(false);
   const [deviceInfo, setDeviceInfo] = useState<RokuDeviceInfo | null>(null);
   const [playerState, setPlayerState] = useState<RokuMediaPlayerState | null>(null);
+  const [devSlotTitle, setDevSlotTitle] = useState<string>('');
+  const [perfSnap, setPerfSnap] = useState<RokuPerfSnapshot | null>(null);
+  const [attachChannelId, setAttachChannelId] = useState<string>('dev');
+  const [attachContentId, setAttachContentId] = useState<string>('ep-101-pilot');
+  const [attachMediaType, setAttachMediaType] = useState<RokuMediaType>('episode');
+  const [attachHotInput, setAttachHotInput] = useState<boolean>(false);
   const [consoleConnected, setConsoleConnected] = useState<boolean>(false);
   const [contentUrl, setContentUrl] = useState<string>(`${lanBaseUrl}/media/content-main.mp4`);
   const [useInputIfRunning, setUseInputIfRunning] = useState<boolean>(false);
@@ -143,7 +151,9 @@ export function RokuDeviceTab({
       const res = await api.getRokuDeviceInfo(rokuIp);
       setDeviceInfo(res.info);
       setPlayerState(res.player);
+      setDevSlotTitle(res.devSlot?.devAppTitle || '');
       setConsoleConnected(res.console.connected);
+      api.getRokuPerf(rokuIp, sessionId).then(setPerfSnap).catch(() => {});
       if (res.info.friendlyName) setDeviceName(res.info.friendlyName);
       setStatusBanner(
         res.info.reachable
@@ -347,6 +357,52 @@ export function RokuDeviceTab({
               <Download size={13} /> Download .zip
             </a>
           </div>
+
+          {devSlotTitle && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+              Current <span className="mono">dev</span> slot channel: <strong>{devSlotTitle}</strong>
+            </div>
+          )}
+        </div>
+
+        {/* :8080 Channel RAM, Texture VRAM & CPU Profiler */}
+        <div className="card">
+          <div className="card-header">
+            <h3 className="card-title">Roku OS :8080 Memory & Texture VRAM Profiler</h3>
+            <button
+              className="btn btn-sm"
+              disabled={!rokuIp}
+              onClick={() =>
+                api
+                  .getRokuPerf(rokuIp, sessionId)
+                  .then((p) => {
+                    setPerfSnap(p);
+                    setStatusBanner(
+                      p.reachable
+                        ? `Sampled :8080 — RAM ${p.channelMemMb ?? '?'} MB | VRAM ${p.textureUsedMb ?? '?'} MB (${p.textureUtilizationPct ?? '?'}%) | CPU ${p.cpuTotalPct ?? '?'}%`
+                        : `Port :8080 unreachable: ${p.error}`
+                    );
+                  })
+                  .catch((e) => setStatusBanner(e instanceof Error ? e.message : String(e)))
+              }
+            >
+              <RefreshCw size={12} /> Sample :8080
+            </button>
+          </div>
+          {perfSnap?.reachable ? (
+            <div className="btn-row" style={{ flexWrap: 'wrap' }}>
+              <span className="pill ok mono">RAM: {perfSnap.channelMemMb ?? 'n/a'} MB</span>
+              <span className={`pill mono ${(perfSnap.textureUtilizationPct ?? 0) > 85 ? 'warn' : 'ok'}`}>
+                VRAM: {perfSnap.textureUsedMb ?? 'n/a'} MB ({perfSnap.textureUtilizationPct ?? 'n/a'}%)
+              </span>
+              <span className="pill mono">CPU: {perfSnap.cpuTotalPct ?? 'n/a'}%</span>
+              <span className="pill mono">SG Nodes: {perfSnap.sgNodeCount ?? 'n/a'}</span>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: 12 }}>
+              Click <strong>Sample :8080</strong> during ad playback to inspect live SceneGraph RAM, GPU texture VRAM headroom, and CPU load.
+            </div>
+          )}
         </div>
 
         {/* Captured Screenshots Gallery */}
@@ -408,6 +464,85 @@ export function RokuDeviceTab({
         )}
 
         {/* 4-Mode Deep-Link Launcher & Runtime RAF Settings */}
+        <div className="card">
+          <div className="card-header">
+            <h3 className="card-title">
+              <Tv size={16} /> Attach & Deep-Link Your Own Channel (Zero-Sideload Cert 4.x Tester)
+            </h3>
+          </div>
+          <div className="grid-2">
+            <div className="field">
+              <label>Target Channel ID (keeps your dev slot intact)</label>
+              <input
+                type="text"
+                className="mono"
+                value={attachChannelId}
+                onChange={(e) => setAttachChannelId(e.target.value)}
+                placeholder="dev"
+              />
+            </div>
+            <div className="field">
+              <label>Deep-Link mediaType (Roku Cert 4.1)</label>
+              <select
+                value={attachMediaType}
+                onChange={(e) => setAttachMediaType(e.target.value as RokuMediaType)}
+              >
+                <option value="episode">episode</option>
+                <option value="movie">movie</option>
+                <option value="shortFormVideo">shortFormVideo</option>
+                <option value="live">live</option>
+                <option value="season">season</option>
+                <option value="special">special</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              style={{ flex: 1 }}
+              value={attachContentId}
+              onChange={(e) => setAttachContentId(e.target.value)}
+              placeholder="contentId (e.g. ep-101-pilot)"
+            />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
+              <input
+                type="checkbox"
+                checked={attachHotInput}
+                onChange={(e) => setAttachHotInput(e.target.checked)}
+              />
+              Warm /input
+            </label>
+            <button
+              className="btn btn-primary"
+              disabled={!rokuIp || busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const res = await api.attachExternalChannel({
+                    ip: rokuIp,
+                    channelId: attachChannelId || 'dev',
+                    contentId: attachContentId || 'ep-101',
+                    mediaType: attachMediaType,
+                    useInputIfRunning: attachHotInput,
+                    sessionId,
+                  });
+                  setConsoleConnected(true);
+                  setStatusBanner(
+                    `Attached :8085 & launched ${res.activeDevAppTitle || attachChannelId} (HTTP ${res.status})`
+                  );
+                } catch (e) {
+                  setStatusBanner(`Attach error: ${e instanceof Error ? e.message : String(e)}`);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Play size={13} /> Attach & Launch Channel
+            </button>
+          </div>
+        </div>
+
+        {/* 5-Mode Deep-Link Launcher & Runtime RAF Settings */}
         <div className="card">
           <div className="card-header">
             <h3 className="card-title">

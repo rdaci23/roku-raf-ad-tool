@@ -11,6 +11,7 @@ import { generateBrightScriptSnippet } from '../src/shared/brsCodeGenerator.js';
 import { importHarArchive } from '../src/shared/harImporter.js';
 import { inspectStreamManifest } from '../src/shared/manifestInspector.js';
 import { generateSsaiMediaPlaylist } from '../src/shared/mockGenerator.js';
+import { validateAdTag } from '../src/shared/rafValidator.js';
 import { scanRokuChannelRepo } from '../src/shared/repoScanner.js';
 import { DEFAULT_RAF_RUNTIME_PREFS } from '../src/shared/types.js';
 import { parseAdXml } from '../src/shared/vastParser.js';
@@ -229,5 +230,27 @@ describe('v2 Manifest Inspector, Vendor Auditor, BRS Codegen, Beacon Diff & HAR 
     } finally {
       rmSync(badDir, { recursive: true, force: true });
     }
+  });
+
+  it('enforces Roku Ad-Load Certification policies (short-form midroll ban, 7-min midroll spacing, and pod cap)', () => {
+    const crowdedVmap = `<?xml version="1.0" encoding="UTF-8"?>
+      <vmap:VMAP xmlns:vmap="http://www.iab.net/videosuite/vmap" version="1.0">
+        <vmap:AdBreak timeOffset="start" breakType="linear" breakId="pre">
+          <vmap:AdSource><vmap:AdTagURI>https://ads.example.com/pre.xml</vmap:AdTagURI></vmap:AdSource>
+        </vmap:AdBreak>
+        <vmap:AdBreak timeOffset="00:02:00" breakType="linear" breakId="mid-1">
+          <vmap:AdSource><vmap:AdTagURI>https://ads.example.com/m1.xml</vmap:AdTagURI></vmap:AdSource>
+        </vmap:AdBreak>
+        <vmap:AdBreak timeOffset="00:05:00" breakType="linear" breakId="mid-2">
+          <vmap:AdSource><vmap:AdTagURI>https://ads.example.com/m2.xml</vmap:AdTagURI></vmap:AdSource>
+        </vmap:AdBreak>
+      </vmap:VMAP>`;
+
+    const policyReport = validateAdTag(crowdedVmap, {
+      policy: { mediaType: 'shortFormVideo', contentLengthSec: 420 },
+    });
+    const issueCodes = policyReport.issues.map((i) => i.code);
+    expect(issueCodes).toContain('ROKU_POLICY_SHORTFORM_MIDROLL');
+    expect(issueCodes).toContain('ROKU_POLICY_MIDROLL_SPACING_TOO_CLOSE');
   });
 });

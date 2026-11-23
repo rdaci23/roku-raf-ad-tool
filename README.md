@@ -14,19 +14,23 @@ Covers static BrightScript channel scanning, **CSAI (VAST 2.0–4.2 / VMAP 1.0 /
 - **HLS (`.m3u8`) & MPEG-DASH (`.mpd`) Inspector**: Parses multivariant & media playlists, `#EXT-X-DISCONTINUITY`, `#EXT-X-DATERANGE`, `#EXT-X-CUE-OUT`, `#EXT-X-OATCLS-SCTE35`, and DASH `<EventStream>` cues.
 - **Vendor Request Builder & BrightScript Code Generator**: Builds and audits ad requests for **GAM**, **Google DAI (VOD & Live)**, **SpringServe**, **Publica**, and **FreeWheel** (verifying RIDA, `is_lat`/`dnt`/`lmt`, `us_privacy`, `gpp`, `correlator`) and generates copy-ready `Roku_Ads.brs` SceneGraph Task snippets.
 
-### 2. Live Mock Ad, SSAI & Google DAI Studio
+### 2. Live Mock Ad, SSAI, Google DAI & Chaos Fault Studio
 - **Live Linear HLS Sliding-Window Server** (`/mock/live/master.m3u8`) with real-time **"Cue Live SCTE-35 / DATERANGE Ad Break Now"** injection.
+- **Ad Chaos & Network Fault Injector (`/api/chaos` / `?chaos=`)**: Simulate `HTTP 503`, `HTTP 429`, `corrupt-xml`, `empty-vast-303`, mid-chain wrapper drops (`drop-wrapper-hop`), broken MP4 CDNs (`media-500`), and socket hangs (`timeout-hang`) to verify Roku channels fall back to content instead of freezing on a black spinner.
 - **Google DAI VOD & Live Emulator** (`POST /mock/dai/ondemand/...` & `POST /mock/dai/live/...`).
 - Built-in & SQLite-persisted custom VAST/VMAP/Pod/Wrapper/Error endpoints with auto-generated animated commercials, HLS `.ts` segments, and MPEG-DASH `.mpd` streams.
 
-### 3. Expected-vs-Actual Beacon Diff & Roku Certification Auditor
+### 3. Expected-vs-Actual Beacon Diff, Roku Ad-Load Policy & Certification Auditor
 - **Tag Instrumentation Proxy (`/proxy/tag`)**: Intercepts and optionally forwards (`forward=1`) beacons and nested VMAP/Wrapper hops from external ad servers (e.g. Google Ad Manager).
-- Reconciles expected vs. fired beacons with **`±s` quartile timing drift** detection and intentional post-skip/early-exit quartile suppression.
-- Evaluates **8 Roku Ad Certification & Privacy Checks**: RIDA + Limit Ad Tracking (`LAT=1`) leak check, `Roku/DVP` User-Agent, Impression/Start parity, Back-button early exit suppression, `[ERRORCODE]` macro substitution, quartile drift, `:8085` BrightScript compile/runtime crash detection, and LAN firewall reachability.
+- **Roku Ad-Load Certification Policies**: Audits VMAP & SmartXML schedules against Roku Certification rules (prohibiting midrolls on `<15m` `shortFormVideo`, enforcing `>= 7 min` midroll spacing, and checking pod duration/spot caps).
+- Reconciles expected vs. fired beacons with **`±s` quartile timing drift** detection, **Ad `TTFF` (ms)** startup metrics, and intentional post-skip/early-exit quartile suppression.
+- Evaluates **9 Roku Ad Certification & Privacy Checks**: RIDA + Limit Ad Tracking (`LAT=1`) leak check, `Roku/DVP` User-Agent, Impression/Start parity, Back-button early exit suppression, `[ERRORCODE]` macro substitution, quartile drift, `:8085` BrightScript compile/runtime crash detection, `:8080` Texture VRAM headroom, and LAN firewall reachability.
 
-### 4. Multi-Roku Roster, On-Device SceneGraph Harness & 18-Case Suite Runner
+### 4. Multi-Roku Roster, `:8080` Memory/VRAM Profiler, External Channel Attach & 20-Case Suite Runner
+- **Attach to Your Own Channel (`raf attach`)**: Deep-link cold (`/launch`) or warm (`/input`) into any channel already installed in `dev` (`contentId` + `mediaType` Roku Cert 4.x) **without** overwriting `dev`, while monitoring `:8085` RAF logs and `:8080` memory/VRAM live.
+- **Roku OS `:8080` Profiler (`raf perf`)**: Samples `chanperf`, `r2d2_bitmaps`, and `sgnodes` for live Channel RAM (MB), CPU %, GPU Texture VRAM utilization %, and SceneGraph node counts.
 - Complete sideloadable Roku channel (`roku-channel/`) supporting **Standard CSAI (`showAds`)**, **Client-Stitched Pods (`constructStitchedStream`)**, **Custom SceneGraph Skippable UI (`csai-skippable`)**, **VOD & Live SSAI (`stitchedAdsInit`)**, and **Google DAI**, plus a toggleable on-TV **RAF Debug HUD (`*`)** and `roRegistry` tag bookmarks.
-- SSDP device discovery, pure-Node PKZIP packaging + HTTP Digest sideloading (`/plugin_install`), `/plugin_inspect` screenshot capture, `:8085` debug console bridge, and an **18-scenario Automated Certification Suite Runner** (hardware or `--simulate` mode).
+- SSDP device discovery, pure-Node PKZIP packaging + HTTP Digest sideloading (`/plugin_install`), `/plugin_inspect` screenshot capture, `:8085` debug console bridge, and a **20-scenario Automated Certification & Chaos Suite Runner** (hardware or `--simulate` mode).
 
 ### 5. Sessions, Snapshots & HAR Traffic Importer
 - Stores test sessions in local SQLite (`node:sqlite`), imports Charles / mitmproxy `.har` captures (sample included in `samples/public-gam-roku-capture.har`), and exports `.json` bundles or `.md` QA Certification Reports.

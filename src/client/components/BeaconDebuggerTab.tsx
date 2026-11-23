@@ -174,6 +174,29 @@ export function BeaconDebuggerTab({
                 <RefreshCw size={12} /> Re-Audit
               </button>
             </div>
+
+            {(auditReport.timingMetrics || auditReport.rokuPerf8080?.reachable) && (
+              <div className="btn-row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+                {auditReport.timingMetrics?.tagFetchLatencyMs !== undefined && (
+                  <span className="pill mono">Tag Fetch: {auditReport.timingMetrics.tagFetchLatencyMs}ms</span>
+                )}
+                {auditReport.timingMetrics?.adTtffMs !== undefined && (
+                  <span className="pill ok mono">Ad TTFF: {auditReport.timingMetrics.adTtffMs}ms</span>
+                )}
+                {auditReport.timingMetrics?.vodStartDurationMs !== undefined && (
+                  <span className="pill mono">VOD Start: {auditReport.timingMetrics.vodStartDurationMs}ms</span>
+                )}
+                {auditReport.rokuPerf8080?.reachable && (
+                  <>
+                    <span className="pill mono">RAM: {auditReport.rokuPerf8080.channelMemMb ?? '?'} MB</span>
+                    <span className="pill mono">
+                      VRAM: {auditReport.rokuPerf8080.textureUsedMb ?? '?'} MB ({auditReport.rokuPerf8080.textureUtilizationPct ?? '?'}%)
+                    </span>
+                    <span className="pill mono">CPU: {auditReport.rokuPerf8080.cpuTotalPct ?? '?'}%</span>
+                  </>
+                )}
+              </div>
+            )}
             <div className="issue-list">
               {auditReport.certChecks.map((chk) => (
                 <div

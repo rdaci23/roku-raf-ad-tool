@@ -1,6 +1,13 @@
 import { detectUnexpandedMacros } from './rafMacros.js';
-import { parseAdXml } from './vastParser.js';
-import type { ParsedAd, ParsedAdTag, ValidationIssue, ValidationReport } from './types.js';
+import { parseAdXml, parseDurationToSeconds } from './vastParser.js';
+import type {
+  ParsedAd,
+  ParsedAdBreak,
+  ParsedAdTag,
+  RokuAdPolicyContext,
+  ValidationIssue,
+  ValidationReport,
+} from './types.js';
 
 const CORE_QUARTILES = ['start', 'firstQuartile', 'midpoint', 'thirdQuartile', 'complete'] as const;
 const VALID_VMAP_OFFSET = /^(start|end|\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?|\d{1,3}%|#\d+)$/i;
@@ -189,11 +196,97 @@ function validateVastStructure(parsed: ParsedAdTag, issues: ValidationIssue[], p
   for (const ad of parsed.ads) {
     validateSingleAd(ad, issues, prefix);
   }
+
+  // Roku Ad-Load Certification Policy: Pod duration & spot count checks
+  const activePodAds = sequenced.length > 0 ? sequenced : parsed.ads.slice(0, 1);
+  const totalPodSec = activePodAds.reduce(
+    (sum, a) => sum + (a.linears[0]?.durationSeconds ?? 0),
+    0
+  );
+  if (totalPodSec > 120) {
+    issues.push({
+      severity: 'warning',
+      code: 'ROKU_POLICY_POD_DURATION_EXCESSIVE',
+      message: `Total ad pod duration (${totalPodSec}s) exceeds Roku's recommended 120s break cap.`,
+      location: `${prefix}AdPod`,
+      rafHint: 'Roku Ad Certification guidelines recommend keeping standard commercial breaks <= 90–120 seconds.',
+    });
+  }
+  if (sequenced.length > 5) {
+    issues.push({
+      severity: 'warning',
+      code: 'ROKU_POLICY_POD_SPOT_COUNT_HIGH',
+      message: `Ad pod contains ${sequenced.length} sequenced spots (recommended <= 5 spots per pod).`,
+      location: `${prefix}AdPod`,
+      rafHint: 'High spot counts increase buffering transitions on entry-level Roku devices.',
+    });
+  }
+}
+
+function evaluateBreakSchedulePolicies(
+  adBreaks: ParsedAdBreak[],
+  issues: ValidationIssue[],
+  policy?: RokuAdPolicyContext
+): void {
+  const midrollOffsetsSec: Array<{ id: string; sec: number }> = [];
+  let hasMidroll = false;
+
+  for (const brk of adBreaks) {
+    const raw = brk.timeOffset.trim().toLowerCase();
+    if (raw === 'start' || raw === '0%' || raw === '00:00:00' || raw === '00:00:00.000') continue;
+    if (raw === 'end' || raw === '100%') continue;
+
+    hasMidroll = true;
+    const parsedSec = parseDurationToSeconds(brk.timeOffset);
+    if (parsedSec !== undefined) {
+      midrollOffsetsSec.push({ id: brk.id || 'midroll', sec: parsedSec });
+    } else if (raw.endsWith('%') && policy?.contentLengthSec) {
+      const pct = Number.parseFloat(raw.slice(0, -1));
+      if (Number.isFinite(pct)) {
+        midrollOffsetsSec.push({
+          id: brk.id || 'midroll',
+          sec: Math.round((policy.contentLengthSec * pct) / 100),
+        });
+      }
+    }
+  }
+
+  if (
+    hasMidroll &&
+    (policy?.mediaType === 'shortFormVideo' ||
+      (policy?.contentLengthSec !== undefined && policy.contentLengthSec > 0 && policy.contentLengthSec < 900))
+  ) {
+    issues.push({
+      severity: 'warning',
+      code: 'ROKU_POLICY_SHORTFORM_MIDROLL',
+      message: `Midroll ad break scheduled on short-form content (${
+        policy?.mediaType === 'shortFormVideo' ? 'mediaType=shortFormVideo' : `${policy?.contentLengthSec}s < 900s`
+      }).`,
+      location: 'AdSchedulePolicy',
+      rafHint: 'Roku UX & Ad-Load Certification guidelines prohibit midroll interruptions on short-form clips (< 15 minutes); use preroll only.',
+    });
+  }
+
+  midrollOffsetsSec.sort((a, b) => a.sec - b.sec);
+  for (let i = 1; i < midrollOffsetsSec.length; i++) {
+    const prev = midrollOffsetsSec[i - 1];
+    const curr = midrollOffsetsSec[i];
+    const gapSec = curr.sec - prev.sec;
+    if (gapSec < 420) {
+      issues.push({
+        severity: 'warning',
+        code: 'ROKU_POLICY_MIDROLL_SPACING_TOO_CLOSE',
+        message: `Midroll breaks "${prev.id}" (${prev.sec}s) and "${curr.id}" (${curr.sec}s) are only ${gapSec}s apart (< 420s / 7 min minimum).`,
+        location: 'AdSchedulePolicy',
+        rafHint: 'Roku Ad Certification requires spacing midroll breaks at least 7–10 minutes (420–600s) apart in long-form VOD.',
+      });
+    }
+  }
 }
 
 export function validateAdTag(
   rawXml: string,
-  options?: { preParsed?: ParsedAdTag; expandedUrl?: string }
+  options?: { preParsed?: ParsedAdTag; expandedUrl?: string; policy?: RokuAdPolicyContext }
 ): ValidationReport {
   const issues: ValidationIssue[] = [];
   let parsed: ParsedAdTag;
@@ -303,6 +396,11 @@ export function validateAdTag(
         validateVastStructure(brk.inlineVast, issues, `${loc} > `);
       }
     }
+    evaluateBreakSchedulePolicies(parsed.adBreaks, issues, options?.policy);
+  }
+
+  if (parsed.tagType === 'SMRX') {
+    evaluateBreakSchedulePolicies(parsed.adBreaks, issues, options?.policy);
   }
 
   const unexpandedMacros = detectUnexpandedMacros(`${options?.expandedUrl ?? ''}\n${rawXml}`).filter(

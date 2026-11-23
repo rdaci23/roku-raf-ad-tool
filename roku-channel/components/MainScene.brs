@@ -182,6 +182,14 @@ sub handleExternalParams(params as Object)
     if params.contentId <> invalid and params.contentId <> "" then m.contentId = params.contentId
     if params.contentGenre <> invalid and params.contentGenre <> "" then m.contentGenre = params.contentGenre
     if params.contentLength <> invalid then m.contentLength = params.contentLength.ToInt()
+    if params.mediaType <> invalid and params.mediaType <> ""
+        mt = LCase(params.mediaType)
+        if mt = "shortformvideo"
+            m.contentLength = 300
+        else if mt = "movie"
+            m.contentLength = 5400
+        end if
+    end if
     if params.showDebugHud <> invalid then m.showDebugHud = (params.showDebugHud = "1" or params.showDebugHud = "true")
     if params.simulateLat <> invalid then m.simulateLat = (params.simulateLat = "1" or params.simulateLat = "true")
 
@@ -196,6 +204,20 @@ sub handleExternalParams(params as Object)
         if params.ssaiMetaUrl <> invalid then ssaiMetaUrl = params.ssaiMetaUrl
         appendLog("ECP Launch [" + adMode + "] -> " + params.adTagUrl)
         startAdRun(params.adTagUrl, contentUrl, adMode, ssaiMetaUrl)
+    else if params.mediaType <> invalid and params.mediaType <> ""
+        ' Standard Roku Deep-Link Cert 4.x launch (contentId + mediaType without explicit adTagUrl)
+        mt = LCase(params.mediaType)
+        if mt = "live"
+            liveUrl = m.serverUrl + "/mock/live/master.m3u8?session=" + m.sessionId
+            liveMeta = m.serverUrl + "/mock/live/raf-metadata.json?session=" + m.sessionId
+            appendLog("Deep-Link Live [" + m.contentId + "]")
+            startAdRun(liveUrl, liveUrl, "ssai-live", liveMeta)
+        else
+            defTag = m.serverUrl + "/mock/vast/single-preroll.xml?session=" + m.sessionId
+            defContent = m.serverUrl + "/media/content-main.mp4"
+            appendLog("Deep-Link VOD [" + params.mediaType + " / " + m.contentId + "]")
+            startAdRun(defTag, defContent, "csai", "")
+        end if
     end if
 end sub
 

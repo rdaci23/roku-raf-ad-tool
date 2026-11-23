@@ -12,6 +12,7 @@ import type { LiveHlsEngine } from './liveHlsEngine.js';
 import {
   captureRokuScreenshot,
   launchTagOnRoku,
+  queryRokuPerformance8080,
   sendRokuKeypress,
   type RokuDebugConsoleBridge,
 } from './rokuBridge.js';
@@ -26,7 +27,8 @@ export interface ExtendedSuiteCaseSpec extends SuiteCaseSpec {
     | 'pause-resume'
     | 'proxy-gam'
     | 'dash-content'
-    | 'custom-skip';
+    | 'custom-skip'
+    | 'chaos-recovery';
 }
 
 export const DEFAULT_SUITE_CASES: ExtendedSuiteCaseSpec[] = [
@@ -181,6 +183,24 @@ export const DEFAULT_SUITE_CASES: ExtendedSuiteCaseSpec[] = [
     adTagPath: '/mock/vast/skippable-preroll.xml',
     timeoutSec: 24,
     interaction: 'custom-skip',
+  },
+  {
+    id: 'chaos-http-503',
+    title: '19. Chaos Resilience: Ad Server HTTP 503 Graceful Content Fallback',
+    scenario: 'single-preroll',
+    adMode: 'csai',
+    adTagPath: '/mock/vast/single-preroll.xml?chaos=http-503',
+    timeoutSec: 18,
+    interaction: 'chaos-recovery',
+  },
+  {
+    id: 'chaos-corrupt-xml',
+    title: '20. Chaos Resilience: Malformed / Truncated VAST XML Recovery',
+    scenario: 'single-preroll',
+    adMode: 'csai',
+    adTagPath: '/mock/vast/single-preroll.xml?chaos=corrupt-xml',
+    timeoutSec: 18,
+    interaction: 'chaos-recovery',
   },
 ];
 
@@ -411,6 +431,18 @@ export class AutomatedSuiteRunner {
       return;
     }
 
+    if (spec.interaction === 'chaos-recovery') {
+      this.beaconStore.record({
+        sessionId: caseSessionId,
+        kind: 'raf_telemetry',
+        eventName: 'CONTENT_PLAY',
+        requestUrl: `${baseUrl}/api/roku/telemetry`,
+        userAgent: 'Roku/DVP-16.0 (SuiteSimulator)',
+        details: { detail: 'Graceful fallback to main content after chaos fault' },
+      });
+      return;
+    }
+
     for (const exp of expected) {
       this.beaconStore.record({
         sessionId: caseSessionId,
@@ -481,6 +513,11 @@ export class AutomatedSuiteRunner {
 
     await this.waitForCaseFinish(spec, opts.deviceIp, caseSessionId, spec.timeoutSec * 1000);
 
+    const perfSnap = await queryRokuPerformance8080(opts.deviceIp, 1800).catch(() => null);
+    if (perfSnap && perfSnap.reachable) {
+      this.beaconStore.setPerf8080(caseSessionId, perfSnap);
+    }
+
     const curEvents = this.beaconStore.getEvents(caseSessionId);
     if (!curEvents.some((e) => e.eventName === 'SESSION_FINISHED')) {
       await sendRokuKeypress(opts.deviceIp, 'Back').catch(() => {});
@@ -505,6 +542,7 @@ export class AutomatedSuiteRunner {
       events,
       toleranceSec,
       simulateLat: spec.interaction === 'lat-enforced',
+      rokuPerf8080: this.beaconStore.getPerf8080(caseSessionId),
     });
 
     const reachabilityFailed = audit.certChecks.some(
@@ -612,6 +650,29 @@ export class AutomatedSuiteRunner {
         summary: passed
           ? 'Verified 5s SceneGraph countdown -> OK Skip fired <Tracking event="skip"> and suppressed post-skip quartiles.'
           : `Custom skip check incomplete (skip=${skipFired}, imp=${impFired}, start=${startFired}, complete=${completeFired}).`,
+        screenshotDataUrl,
+      };
+    }
+
+    if (spec.interaction === 'chaos-recovery') {
+      const chaosHit = events.some((e) => e.eventName.startsWith('CHAOS_INJECTED'));
+      const contentPlayed = events.some(
+        (e) =>
+          e.eventName === 'CONTENT_PLAY' ||
+          /\|VODStartComplete/i.test(String(e.details?.line ?? ''))
+      );
+      const passed = (chaosHit || isSimulated) && contentPlayed && !runtimeCrashed;
+      return {
+        caseId: spec.id,
+        title: spec.title,
+        sessionId: caseSessionId,
+        passed,
+        certScore: passed ? 100 : 25,
+        durationMs: Date.now() - startedMs,
+        beaconsFired: 0,
+        summary: passed
+          ? 'Verified graceful fallback to main content video with zero black-screen hang or BrightScript crash.'
+          : `Chaos recovery failed (chaosHit=${chaosHit}, contentPlayed=${contentPlayed}).`,
         screenshotDataUrl,
       };
     }
@@ -751,6 +812,17 @@ export class AutomatedSuiteRunner {
           return;
         }
       } else {
+        if (
+          spec.interaction === 'chaos-recovery' &&
+          evs.some(
+            (e) =>
+              e.eventName === 'CONTENT_PLAY' ||
+              /\|VODStartComplete/i.test(String(e.details?.line ?? ''))
+          )
+        ) {
+          await new Promise((r) => setTimeout(r, 1200));
+          return;
+        }
         const prerollEnded = evs.some((e) => /SESSION_FINISHED|PREROLL_END/i.test(e.eventName));
         if (prerollEnded) {
           // For DASH content check, let DASH content play 2.5s after PREROLL_END so Roku demuxes .mpd + .m4s segments!
