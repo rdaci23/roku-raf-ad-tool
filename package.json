@@ -1,6 +1,6 @@
 {
   "name": "roku-raf-ad-tool",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
   "description": "All-in-one Roku Advertising Framework (RAF) workbench: BrightScript channel scanner, VAST/VMAP/SmartXML validator, live beacon certification auditor, CSAI/SSAI/DAI mock studio, CLI, MCP server, and Roku SceneGraph test harness.",
   "type": "module",
