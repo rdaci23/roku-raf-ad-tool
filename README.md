@@ -21,7 +21,7 @@ Covers static BrightScript channel scanning, **CSAI (VAST 2.0–4.2 / VMAP 1.0 /
 - **Vendor Request Builder & BrightScript Code Generator**: Builds and audits ad requests for **GAM**, **Google DAI (VOD & Live)**, **SpringServe**, **Publica**, and **FreeWheel** (verifying RIDA, `is_lat`/`dnt`/`lmt`, `us_privacy`, `gpp`, `correlator`) and generates copy-ready `Roku_Ads.brs` SceneGraph Task snippets.
 
 ### 2. Live Mock Ad, SSAI, Google DAI & Chaos Fault Studio
-- **Live Linear HLS Sliding-Window Server** (`/mock/live/master.m3u8`) with real-time **"Cue Live SCTE-35 / DATERANGE Ad Break Now"** injection.
+- **Live Linear HLS Sliding-Window Server** (`/mock/live/master.m3u8`) with real-time **"Cue Live SCTE-35 / DATERANGE Ad Break Now"** injection, plus a **3-Rung (`234p/432p/720p`) Multi-Ad Stitched ABR Stream** (`/mock/ssai-abr/master.m3u8`), **External `#EXT-X-DATERANGE` ↔ RAF Metadata Bridge** (`/api/ssai/bridge-metadata?manifestUrl=...`), and **Loopback-to-LAN Stream Relay** (`/proxy/stream?url=...`).
 - **Ad Chaos & Network Fault Injector (`/api/chaos` / `?chaos=`)**: Simulate `HTTP 503`, `HTTP 429`, `corrupt-xml`, `empty-vast-303`, mid-chain wrapper drops (`drop-wrapper-hop`), broken MP4 CDNs (`media-500`), and socket hangs (`timeout-hang`) to verify Roku channels fall back to content instead of freezing on a black spinner.
 - **Google DAI VOD & Live Emulator** (`POST /mock/dai/ondemand/...` & `POST /mock/dai/live/...`).
 - Built-in & SQLite-persisted custom VAST/VMAP/Pod/Wrapper/Error endpoints with auto-generated animated commercials, HLS `.ts` segments, and MPEG-DASH `.mpd` streams.

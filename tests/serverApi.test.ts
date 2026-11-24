@@ -146,4 +146,36 @@ describe('Roku RAF Ad Tool v2 HTTP Server Integration', () => {
     expect(chaosCorrupt.status).toBe(200);
     expect(await chaosCorrupt.text()).toContain('TruncatedChaosStream');
   });
+
+  it('serves 3-rung ABR stitched SSAI streams, stream relay proxy, and auto-synced #EXT-X-DATERANGE bridge metadata', async () => {
+    const masterResp = await fetch(`${baseUrl}/mock/ssai-abr/master.m3u8?session=abr-test`);
+    expect(masterResp.status).toBe(200);
+    const masterText = await masterResp.text();
+    expect(masterText).toContain('RESOLUTION=416x234');
+    expect(masterText).toContain('RESOLUTION=768x432');
+    expect(masterText).toContain('RESOLUTION=1280x720');
+
+    const metaResp = await fetch(`${baseUrl}/mock/ssai-abr/raf-metadata.json?session=abr-test`);
+    const pods = await metaResp.json();
+    expect(pods).toHaveLength(2);
+    expect(pods[0].ads).toHaveLength(2);
+    expect(pods[1].ads).toHaveLength(1);
+
+    const relayedResp = await fetch(
+      `${baseUrl}/proxy/stream?url=${encodeURIComponent(`${baseUrl}/mock/ssai-abr/master.m3u8?session=abr-test`)}`
+    );
+    expect(relayedResp.status).toBe(200);
+    expect(await relayedResp.text()).toContain('/proxy/stream?url=');
+
+    const bridgeResp = await fetch(
+      `${baseUrl}/api/ssai/bridge-metadata?manifestUrl=${encodeURIComponent(
+        `${baseUrl}/mock/ssai-abr/master.m3u8?session=bridge-unit`
+      )}&session=bridge-unit`
+    );
+    expect(bridgeResp.status).toBe(200);
+    const bridgedPods = await bridgeResp.json();
+    expect(bridgedPods).toHaveLength(2);
+    expect(bridgedPods[0].renderTime).toBe(5);
+    expect(bridgedPods[1].renderTime).toBe(20);
+  });
 });

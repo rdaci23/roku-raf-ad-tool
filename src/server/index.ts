@@ -38,9 +38,13 @@ import { generateBrightScriptSnippet } from '../shared/brsCodeGenerator.js';
 import { importHarArchive } from '../shared/harImporter.js';
 import { inspectStreamManifest } from '../shared/manifestInspector.js';
 import {
+  buildBeaconUrl,
   buildFromCustomConfig,
   generateMockVastXml,
   generateMockVmapXml,
+  generateSsaiAbrMasterPlaylist,
+  generateSsaiAbrRafMetadata,
+  generateSsaiAbrVariantPlaylist,
   generateSsaiMediaPlaylist,
   generateSsaiRafMetadata,
 } from '../shared/mockGenerator.js';
@@ -371,6 +375,7 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
         pathname.startsWith('/proxy/') ||
         pathname.startsWith('/media/') ||
         pathname.startsWith('/api/beacon') ||
+        pathname === '/api/ssai/bridge-metadata' ||
         pathname === '/llms.txt' ||
         pathname === '/api/openapi.json';
 
@@ -919,6 +924,283 @@ export function createAppServer(options?: { port?: number; dbPath?: string }) {
           sessionId,
           extractExpectedBeaconsFromSsaiPods(pods, sessionId, 'ssai')
         );
+        sendJson(res, 200, pods);
+        return;
+      }
+
+      // Multi-Rung ABR (234p/432p/720p) Multi-Ad Stitched SSAI Stream
+      if (pathname === '/mock/ssai-abr/master.m3u8' && req.method === 'GET') {
+        const sessionId = parsedUrl.searchParams.get('session') || 'default';
+        beaconStore.record({
+          sessionId,
+          kind: 'tag_request',
+          eventName: 'SSAI_ABR_MASTER_REQUEST',
+          requestUrl: parsedUrl.toString(),
+          userAgent,
+          remoteIp,
+        });
+        const m3u8 = generateSsaiAbrMasterPlaylist(baseUrl, sessionId);
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Cache-Control': 'no-store',
+        });
+        res.end(m3u8);
+        return;
+      }
+
+      if (pathname.startsWith('/mock/ssai-abr/variant-') && pathname.endsWith('.m3u8') && req.method === 'GET') {
+        const rungRaw = pathname.slice('/mock/ssai-abr/variant-'.length, -'.m3u8'.length);
+        if (rungRaw !== '234p' && rungRaw !== '432p' && rungRaw !== '720p') {
+          sendJson(res, 404, { error: 'Unknown ABR variant rung' });
+          return;
+        }
+        const m3u8 = generateSsaiAbrVariantPlaylist(baseUrl, rungRaw);
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Cache-Control': 'no-store',
+        });
+        res.end(m3u8);
+        return;
+      }
+
+      if (pathname === '/mock/ssai-abr/raf-metadata.json' && req.method === 'GET') {
+        const sessionId = parsedUrl.searchParams.get('session') || 'default';
+        const pods = generateSsaiAbrRafMetadata(baseUrl, sessionId);
+        beaconStore.registerExpectedBeacons(
+          sessionId,
+          extractExpectedBeaconsFromSsaiPods(pods, sessionId, 'ssai')
+        );
+        sendJson(res, 200, pods);
+        return;
+      }
+
+      // Transparent HLS/DASH/Segment LAN Relay (bridges loopback simulators like hls-dash-live-sim :8899 to physical Roku)
+      if (pathname === '/proxy/stream' && req.method === 'GET') {
+        const rawUpstream = parsedUrl.searchParams.get('url') || '';
+        let target: URL;
+        try {
+          target = new URL(rawUpstream);
+          if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+            throw new Error('Only http/https URLs supported');
+          }
+        } catch {
+          sendJson(res, 400, { error: 'Invalid or missing url query parameter' });
+          return;
+        }
+
+        const fHeaders: Record<string, string> = {};
+        if (req.headers.range) fHeaders.Range = req.headers.range;
+        if (userAgent) fHeaders['User-Agent'] = String(userAgent);
+
+        const upResp = await fetch(target.toString(), { headers: fHeaders });
+        const cType = upResp.headers.get('content-type') || 'application/octet-stream';
+        const isHlsManifest =
+          cType.toLowerCase().includes('mpegurl') || target.pathname.toLowerCase().endsWith('.m3u8');
+
+        if (upResp.ok && isHlsManifest) {
+          const text = await upResp.text();
+          const wrapUrl = (u: string) =>
+            `${baseUrl}/proxy/stream?url=${encodeURIComponent(new URL(u, target).toString())}`;
+
+          const rewritten = text
+            .split(/\r?\n/)
+            .map((line) => {
+              const trimmed = line.trim();
+              if (!trimmed) return line;
+              if (trimmed.startsWith('#')) {
+                return line.replace(/URI="([^"]+)"/g, (_m, uriVal) => `URI="${wrapUrl(uriVal)}"`);
+              }
+              return wrapUrl(trimmed);
+            })
+            .join('\n');
+
+          res.writeHead(upResp.status, {
+            'Content-Type': 'application/vnd.apple.mpegurl',
+            'Cache-Control': 'no-store',
+          });
+          res.end(rewritten);
+          return;
+        }
+
+        const buf = Buffer.from(await upResp.arrayBuffer());
+        const outHeaders: Record<string, string | number> = {
+          'Content-Type': cType,
+          'Content-Length': buf.length,
+        };
+        const cRange = upResp.headers.get('content-range');
+        if (cRange) outHeaders['Content-Range'] = cRange;
+        const aRanges = upResp.headers.get('accept-ranges');
+        if (aRanges) outHeaders['Accept-Ranges'] = aRanges;
+
+        res.writeHead(upResp.status, outHeaders);
+        res.end(buf);
+        return;
+      }
+
+      // Auto-Synced External HLS (#EXT-X-DATERANGE / #EXT-X-CUE-OUT) <-> RAF stitchedAdsInit() Metadata Bridge
+      if (pathname === '/api/ssai/bridge-metadata' && req.method === 'GET') {
+        const manifestUrl = parsedUrl.searchParams.get('manifestUrl') || '';
+        const sessionId = parsedUrl.searchParams.get('session') || 'default';
+        const playerPos = Number(parsedUrl.searchParams.get('playerPos') || 0);
+
+        if (!manifestUrl) {
+          sendJson(res, 400, { error: 'Missing manifestUrl query parameter' });
+          return;
+        }
+
+        let currentUrl = manifestUrl;
+        let m3u8Resp = await fetch(currentUrl);
+        if (!m3u8Resp.ok) {
+          sendJson(res, 502, { error: `Upstream manifest HTTP ${m3u8Resp.status}` });
+          return;
+        }
+        let m3u8Text = await m3u8Resp.text();
+
+        // Follow first variant if multivariant master playlist
+        if (/#EXT-X-STREAM-INF/i.test(m3u8Text)) {
+          const lines = m3u8Text.split(/\r?\n/);
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].trim().startsWith('#EXT-X-STREAM-INF')) {
+              const nextUri = lines.slice(i + 1).find((l) => l.trim() && !l.trim().startsWith('#'));
+              if (nextUri) {
+                currentUrl = new URL(nextUri.trim(), currentUrl).toString();
+                const childResp = await fetch(currentUrl);
+                if (childResp.ok) {
+                  m3u8Text = await childResp.text();
+                }
+              }
+              break;
+            }
+          }
+        }
+
+        const isVodOrEvent = /#EXT-X-PLAYLIST-TYPE:(VOD|EVENT)/i.test(m3u8Text) || /#EXT-X-ENDLIST/i.test(m3u8Text);
+        const maxBreakCount = Number(parsedUrl.searchParams.get('maxBreaks') || 0);
+        const lines = m3u8Text.split(/\r?\n/);
+        let timelineSec = 0;
+        let firstProgramEpochMs: number | null = null;
+        for (const rawLine of lines) {
+          const pdtMatch = rawLine.trim().match(/^#EXT-X-PROGRAM-DATE-TIME:(.+)$/i);
+          if (pdtMatch) {
+            const parsedPdt = Date.parse(pdtMatch[1].trim());
+            if (!Number.isNaN(parsedPdt)) {
+              firstProgramEpochMs = parsedPdt;
+              break;
+            }
+          }
+        }
+
+        const discoveredBreaks: Array<{ id: string; startSec: number; durationSec: number }> = [];
+        let pendingCueStart: number | null = null;
+        let pendingCueDur = 0;
+        let cueCounter = 0;
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (line.startsWith('#EXT-X-DATERANGE:')) {
+            const idMatch = line.match(/ID="([^"]+)"/i);
+            const durMatch = line.match(/DURATION=([0-9.]+)/i);
+            const startMatch = line.match(/START-DATE="([^"]+)"/i);
+            const isAdRange = /SCTE35|ad-break|splice/i.test(line);
+            if (isAdRange && durMatch) {
+              const id = idMatch ? idMatch[1] : `daterange-pod-${++cueCounter}`;
+              let computedStart = timelineSec;
+              if (startMatch && firstProgramEpochMs !== null) {
+                const startMs = Date.parse(startMatch[1]);
+                if (!Number.isNaN(startMs) && startMs >= firstProgramEpochMs) {
+                  computedStart = (startMs - firstProgramEpochMs) / 1000;
+                }
+              }
+              if (!discoveredBreaks.some((b) => b.id === id || Math.abs(b.startSec - computedStart) < 1.0)) {
+                discoveredBreaks.push({
+                  id,
+                  startSec: computedStart,
+                  durationSec: Number.parseFloat(durMatch[1]),
+                });
+              }
+            }
+          } else if (line.startsWith('#EXT-X-CUE-OUT')) {
+            const durMatch = line.match(/(?:DURATION=|:)([0-9.]+)/i);
+            pendingCueStart = timelineSec;
+            pendingCueDur = durMatch ? Number.parseFloat(durMatch[1]) : 0;
+          } else if (line.startsWith('#EXT-X-CUE-IN')) {
+            if (pendingCueStart !== null) {
+              const actualDur = pendingCueDur > 0 ? pendingCueDur : Math.max(2, timelineSec - pendingCueStart);
+              const alreadyCovered = discoveredBreaks.some(
+                (b) => Math.abs(b.startSec - pendingCueStart!) < 1.0
+              );
+              if (!alreadyCovered) {
+                discoveredBreaks.push({
+                  id: `cue-pod-${++cueCounter}-${Math.round(pendingCueStart)}s`,
+                  startSec: pendingCueStart,
+                  durationSec: actualDur,
+                });
+              }
+              pendingCueStart = null;
+              pendingCueDur = 0;
+            }
+          } else if (line.startsWith('#EXTINF:')) {
+            const infMatch = line.match(/#EXTINF:([0-9.]+)/);
+            if (infMatch) {
+              timelineSec += Number.parseFloat(infMatch[1]);
+            }
+          }
+        }
+
+        const selectedBreaks =
+          maxBreakCount > 0 ? discoveredBreaks.slice(0, maxBreakCount) : discoveredBreaks;
+        const root = baseUrl.replace(/\/$/, '');
+        const pods = selectedBreaks.map((brk, idx) => {
+          const renderTime = isVodOrEvent
+            ? Number(brk.startSec.toFixed(2))
+            : Number((playerPos + brk.startSec).toFixed(2));
+          const spotCount = brk.durationSec >= 8 ? 2 : 1;
+          const spotDur = Number((brk.durationSec / spotCount).toFixed(2));
+          const ads = Array.from({ length: spotCount }, (_, sIdx) => {
+            const spotStart = renderTime + sIdx * spotDur;
+            const adId = `${brk.id}-spot-${sIdx + 1}`;
+            const mkTrack = (event: string, frac: number) => ({
+              event,
+              url: buildBeaconUrl(root, { sessionId, event, adId, podId: brk.id }),
+              time: Number((spotStart + spotDur * frac).toFixed(2)),
+              triggered: false,
+            });
+            return {
+              adServer: root,
+              adId,
+              adTitle: `Bridged Stitched Ad ${sIdx + 1}/${spotCount} (${spotDur}s)`,
+              duration: spotDur,
+              streamFormat: 'hls',
+              streams: [],
+              companionAds: [],
+              tracking: [
+                mkTrack('Impression', 0),
+                mkTrack('Start', 0.02),
+                mkTrack('FirstQuartile', 0.25),
+                mkTrack('Midpoint', 0.5),
+                mkTrack('ThirdQuartile', 0.75),
+                mkTrack('Complete', 0.96),
+              ],
+            };
+          });
+
+          return {
+            id: brk.id,
+            viewed: false,
+            renderSequence: brk.startSec === 0 ? 'preroll' : `midroll-${idx + 1}`,
+            renderTime,
+            duration: brk.durationSec,
+            ads,
+          };
+        });
+
+        if (pods.length > 0) {
+          beaconStore.registerExpectedBeacons(
+            sessionId,
+            extractExpectedBeaconsFromSsaiPods(pods, sessionId, 'ssai')
+          );
+        }
+
         sendJson(res, 200, pods);
         return;
       }

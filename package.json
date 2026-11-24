@@ -21,9 +21,9 @@
     }
   },
   "bin": {
-    "roku-raf-ad-tool": "./bin/roku-raf-ad-tool.mjs",
-    "raf": "./bin/raf.mjs",
-    "roku-raf-mcp": "./bin/roku-raf-mcp.mjs"
+    "roku-raf-ad-tool": "bin/roku-raf-ad-tool.mjs",
+    "raf": "bin/raf.mjs",
+    "roku-raf-mcp": "bin/roku-raf-mcp.mjs"
   },
   "files": [
     "dist",
@@ -80,8 +80,8 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "verify": "npm run build && npm test",
-    "release": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it'",
-    "release:github": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it --no-npm.publish'",
+    "release": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it \"$@\"' --",
+    "release:github": "sh -c 'GITHUB_TOKEN=\"${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}\" npx release-it --no-npm.publish --npm.skipChecks \"$@\"' --",
     "release:dry": "release-it --dry-run --npm.skipChecks --no-git.requireCleanWorkingDir"
   },
   "dependencies": {

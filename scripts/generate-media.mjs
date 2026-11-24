@@ -528,7 +528,91 @@ if (hasFfmpeg) {
     freqHz: 330,
   });
 
+function buildAbrTsLadder() {
+  const rungs = [
+    { key: '234p', w: 416, h: 234, vb: '380k', fsTitle: 14, fsSub: 10, boxX: 20, boxY: 150, boxW: 376, boxH: 68 },
+    { key: '432p', w: 768, h: 432, vb: '950k', fsTitle: 24, fsSub: 15, boxX: 44, boxY: 285, boxW: 680, boxH: 115 },
+    { key: '720p', w: 1280, h: 720, vb: '2200k', fsTitle: 38, fsSub: 24, boxX: 80, boxY: 490, boxW: 1120, boxH: 180 },
+  ];
+
+  const specs = [
+    { slug: 'content-1', dur: 5, isAd: false, label: 'ABR LIVE/VOD PROGRAM — PART 1', sub: 'Pre-Break Content Feed', c0: '0x1e293b', c1: '0x334155', freq: 330 },
+    { slug: 'ad-brand', dur: 5, isAd: true, label: 'POD 1 • SPOT 1/2 — BRAND AD', sub: 'Stitched ABR Commercial (5s)', c0: '0x1e3a8a', c1: '0x6d28d9', freq: 440 },
+    { slug: 'ad-promo', dur: 5, isAd: true, label: 'POD 1 • SPOT 2/2 — PROMO SPOT', sub: 'Stitched ABR Promo Ad (5s)', c0: '0x065f46', c1: '0x0d9488', freq: 523 },
+    { slug: 'content-2', dur: 5, isAd: false, label: 'ABR LIVE/VOD PROGRAM — PART 2', sub: 'Mid-Program Content Feed', c0: '0x1e293b', c1: '0x334155', freq: 349 },
+    { slug: 'ad-bumper', dur: 5, isAd: true, label: 'POD 2 • SPONSOR BUMPER AD', sub: 'Stitched ABR Bumper Spot (5s)', c0: '0x7c2d12', c1: '0xd97706', freq: 587 },
+    { slug: 'content-3', dur: 5, isAd: false, label: 'ABR LIVE/VOD PROGRAM — PART 3', sub: 'Post-Break Content Feed', c0: '0x1e293b', c1: '0x334155', freq: 330 },
+  ];
+
+  const fontArgBold = BOLD_FONT ? `fontfile='${BOLD_FONT}':` : '';
+  const fontArgMono = MONO_FONT ? `fontfile='${MONO_FONT}':` : '';
+
+  for (const r of rungs) {
+    for (const sp of specs) {
+      const outPath = join(HLS_DIR, `abr-${r.key}-${sp.slug}.ts`);
+      if (existsSync(outPath) && !FORCE) continue;
+      const tmpPath = `${outPath}.tmp.ts`;
+      const videoInput = sp.isAd
+        ? `gradients=s=${r.w}x${r.h}:r=30:d=${sp.dur}:c0=${sp.c0}:c1=${sp.c1}:speed=0.05`
+        : `testsrc2=s=${r.w}x${r.h}:r=30:d=${sp.dur}`;
+      const vf = [
+        `drawbox=x=${r.boxX}:y=${r.boxY}:w=${r.boxW}:h=${r.boxH}:color=0x090d16@0.85:t=fill`,
+        `drawbox=x=${r.boxX}:y=${r.boxY}:w=${r.boxW}:h=4:color=${sp.isAd ? '0xf59e0b' : '0x38bdf8'}:t=fill`,
+        `drawtext=${fontArgBold}expansion=none:text='${escText(`${sp.label} [${r.key}]`)}':fontcolor=white:fontsize=${r.fsTitle}:x=${r.boxX + 16}:y=${r.boxY + 14}`,
+        `drawtext=${fontArgMono}expansion=none:text='${escText(sp.sub)}':fontcolor=0x6ee7b7:fontsize=${r.fsSub}:x=${r.boxX + 16}:y=${r.boxY + Math.round(r.boxH * 0.58)}`,
+      ].join(',');
+
+      const res = spawnSync(
+        'ffmpeg',
+        [
+          '-y',
+          '-f',
+          'lavfi',
+          '-i',
+          videoInput,
+          '-f',
+          'lavfi',
+          '-i',
+          `sine=frequency=${sp.freq}:sample_rate=48000:duration=${sp.dur}`,
+          '-af',
+          'volume=0.06',
+          '-vf',
+          vf,
+          '-c:v',
+          'libx264',
+          '-profile:v',
+          'main',
+          '-pix_fmt',
+          'yuv420p',
+          '-preset',
+          'ultrafast',
+          '-b:v',
+          r.vb,
+          '-maxrate',
+          r.vb,
+          '-bufsize',
+          '1500k',
+          '-g',
+          '30',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '128k',
+          '-f',
+          'mpegts',
+          tmpPath,
+        ],
+        { stdio: 'pipe' }
+      );
+      if (res.status === 0) {
+        renameSync(tmpPath, outPath);
+      }
+    }
+  }
+}
+
   buildDashStream();
+  buildAbrTsLadder();
 }
 
 console.log('[setup:assets] Cross-platform commercials, skippable spot, HLS & MPEG-DASH streams ready.');

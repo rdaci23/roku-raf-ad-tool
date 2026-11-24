@@ -85,6 +85,7 @@ export function extractExpectedBeaconsFromParsedTag(
 
 export function extractExpectedBeaconsFromSsaiPods(
   pods: Array<{
+    id?: string;
     renderSequence?: string;
     duration?: number;
     ads?: Array<{
@@ -98,7 +99,7 @@ export function extractExpectedBeaconsFromSsaiPods(
 ): ExpectedBeaconSpec[] {
   const specs: ExpectedBeaconSpec[] = [];
   for (const [pIdx, pod] of pods.entries()) {
-    const podId = pod.renderSequence || `ssai-pod-${pIdx + 1}`;
+    const podId = pod.id || pod.renderSequence || `ssai-pod-${pIdx + 1}`;
     for (const ad of pod.ads ?? []) {
       const adId = ad.adId || `ssai-ad-${pIdx + 1}`;
       const dur = ad.duration ?? pod.duration;

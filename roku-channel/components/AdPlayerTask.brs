@@ -67,6 +67,16 @@ function getRafViewNode(video as Object) as Object
     return video.getParent()
 end function
 
+function detectStreamFormat(url as String) as String
+    lower = LCase(url)
+    if Right(lower, 5) = ".m3u8" or Instr(1, lower, ".m3u8?") > 0 or Instr(1, lower, ".m3u8%3f") > 0 or Instr(1, lower, "%2fproxy.m3u8") > 0
+        return "hls"
+    else if Right(lower, 4) = ".mpd" or Instr(1, lower, ".mpd?") > 0 or Instr(1, lower, ".mpd%3f") > 0
+        return "dash"
+    end if
+    return "mp4"
+end function
+
 sub runAdSession()
     video = m.top.videoNode
     if video = invalid
@@ -125,13 +135,7 @@ sub runCsaiStandardFlow(raf as Object, video as Object)
     contentNode = CreateObject("roSGNode", "ContentNode")
     contentNode.url = m.top.contentUrl
     contentNode.title = m.top.contentId
-    if Right(LCase(m.top.contentUrl), 5) = ".m3u8" or Instr(1, LCase(m.top.contentUrl), ".m3u8?") > 0
-        contentNode.streamFormat = "hls"
-    else if Right(LCase(m.top.contentUrl), 4) = ".mpd" or Instr(1, LCase(m.top.contentUrl), ".mpd?") > 0
-        contentNode.streamFormat = "dash"
-    else
-        contentNode.streamFormat = "mp4"
-    end if
+    contentNode.streamFormat = detectStreamFormat(m.top.contentUrl)
 
     video.content = contentNode
     video.observeFieldScoped("position", port)
@@ -181,8 +185,7 @@ sub runCsaiStitchedFlow(raf as Object, video as Object)
     raf.setAdUrl(m.top.adTagUrl)
     adPods = raf.getAds()
 
-    fmt = "mp4"
-    if Right(LCase(m.top.contentUrl), 5) = ".m3u8" then fmt = "hls"
+    fmt = detectStreamFormat(m.top.contentUrl)
 
     contentNode = CreateObject("roSGNode", "ContentNode")
     contentNode.url = m.top.contentUrl
@@ -373,7 +376,7 @@ sub runCsaiSkippableFlow(raf as Object, video as Object)
 
     contentNode = CreateObject("roSGNode", "ContentNode")
     contentNode.url = m.top.contentUrl
-    contentNode.streamFormat = "mp4"
+    contentNode.streamFormat = detectStreamFormat(m.top.contentUrl)
     video.content = contentNode
     video.setFocus(true)
     video.control = "play"
@@ -392,6 +395,18 @@ function fetchJson(url as String) as Dynamic
 end function
 
 sub runSsaiFlow(raf as Object, video as Object, isLive as Boolean)
+    ' Support Hybrid CSAI Preroll + Stitched SSAI Midrolls when adTagUrl points to a distinct VAST/VMAP XML tag
+    if m.top.adTagUrl <> "" and m.top.adTagUrl <> m.top.contentUrl and Instr(1, LCase(m.top.adTagUrl), ".m3u8") = 0 and Instr(1, LCase(m.top.adTagUrl), "/dai/") = 0
+        emitTelemetry("HYBRID_CSAI_PREROLL", m.top.adTagUrl)
+        raf.setAdUrl(m.top.adTagUrl)
+        prePods = raf.getAds()
+        if prePods <> invalid and prePods.Count() > 0
+            viewNode = getRafViewNode(video)
+            shouldContinue = raf.showAds(prePods, invalid, viewNode)
+            if not shouldContinue then return
+        end if
+    end if
+
     emitTelemetry("SSAI_INIT", "live=" + isLive.ToStr() + " meta=" + m.top.ssaiMetaUrl)
     fetched = fetchJson(m.top.ssaiMetaUrl)
     adPods = []
@@ -435,9 +450,11 @@ sub runSsaiFlow(raf as Object, video as Object, isLive as Boolean)
                     end if
                 else if field = "position" and isLive and m.top.ssaiMetaUrl <> ""
                     curPos = Int(video.position)
-                    if curPos - lastPollSec >= 6
+                    if curPos - lastPollSec >= 4
                         lastPollSec = curPos
-                        polled = fetchJson(m.top.ssaiMetaUrl)
+                        pollSep = "?"
+                        if Instr(1, m.top.ssaiMetaUrl, "?") > 0 then pollSep = "&"
+                        polled = fetchJson(m.top.ssaiMetaUrl + pollSep + "playerPos=" + curPos.ToStr())
                         nextPods = []
                         if type(polled) = "roArray"
                             nextPods = polled

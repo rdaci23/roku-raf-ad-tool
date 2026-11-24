@@ -2,6 +2,16 @@
 
 All notable changes to `roku-raf-ad-tool` are documented in this file.
 
+## [1.1.0](https://github.com/rdaci23/roku-raf-ad-tool/compare/v1.0.0...v1.1.0) (2026-11-24)
+
+### Features
+
+* **ssai:** add 3-rung ABR stitched pods, #EXT-X-DATERANGE bridge, hybrid CSAI+SSAI, and stream relay ([3cdd807](https://github.com/rdaci23/roku-raf-ad-tool/commit/3cdd8078a4f72fb8f4a1e5c88568c7e129ff09b5))
+
+### Bug Fixes
+
+* **roku:** exit active dev app to Home and use Replace on Roku OS 16 sideload ([e51bb9f](https://github.com/rdaci23/roku-raf-ad-tool/commit/e51bb9f50530324f91cccfcd7c8b56cede647ac1))
+
 ## [1.0.0](https://github.com/rdaci23/roku-raf-ad-tool/releases/tag/v1.0.0) (2026-11-23)
 
 ### Features

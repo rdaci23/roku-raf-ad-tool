@@ -448,7 +448,7 @@ async function main() {
     let mode: RafPlaybackMode = (flags.mode as RafPlaybackMode) || 'csai';
     const rawExternalTag = flags.tag ? String(flags.tag) : flags.url ? String(flags.url) : '';
     let adTagUrl = rawExternalTag;
-    let ssaiMetaUrl: string | undefined;
+    let ssaiMetaUrl: string | undefined = flags.meta ? String(flags.meta) : undefined;
 
     if (adTagUrl && Boolean(flags.proxy) && !adTagUrl.includes('/proxy/tag')) {
       adTagUrl = `${lanBase}/proxy/tag?session=${encodeURIComponent(sessionId)}&forward=1&url=${encodeURIComponent(rawExternalTag)}`;
@@ -458,11 +458,15 @@ async function main() {
       if (scenario === 'ssai-hls') {
         mode = 'ssai';
         adTagUrl = `${lanBase}/mock/ssai/stream.m3u8?session=${sessionId}`;
-        ssaiMetaUrl = `${lanBase}/mock/ssai/raf-metadata.json?session=${sessionId}`;
+        ssaiMetaUrl = ssaiMetaUrl || `${lanBase}/mock/ssai/raf-metadata.json?session=${sessionId}`;
+      } else if ((scenario as string) === 'ssai-abr') {
+        mode = 'ssai';
+        adTagUrl = `${lanBase}/mock/ssai-abr/master.m3u8?session=${sessionId}`;
+        ssaiMetaUrl = ssaiMetaUrl || `${lanBase}/mock/ssai-abr/raf-metadata.json?session=${sessionId}`;
       } else if (scenario === 'ssai-live') {
         mode = 'ssai-live';
         adTagUrl = `${lanBase}/mock/live/master.m3u8?session=${sessionId}`;
-        ssaiMetaUrl = `${lanBase}/mock/live/raf-metadata.json?session=${sessionId}`;
+        ssaiMetaUrl = ssaiMetaUrl || `${lanBase}/mock/live/raf-metadata.json?session=${sessionId}`;
       } else if (scenario === 'google-dai-vod') {
         mode = 'google-dai';
         adTagUrl = `${lanBase}/mock/dai/ondemand/hls/content/2548831/vid/pilot/streams?session=${sessionId}`;
@@ -470,6 +474,8 @@ async function main() {
         adTagUrl = `${lanBase}/mock/vast/${scenario}.xml?session=${sessionId}`;
       }
     }
+
+    const explicitContent = flags.content ? String(flags.content) : '';
 
     // Connect :8085 console, wait 450ms for Roku's historical ring-buffer replay, then clear session cleanly
     await fetch(`${apiBase}/api/roku/console/connect`, {
@@ -491,9 +497,10 @@ async function main() {
         ip: defaultIp,
         adTagUrl,
         contentUrl:
-          mode === 'ssai' || mode === 'ssai-live'
+          explicitContent ||
+          (mode === 'ssai' || mode === 'ssai-live'
             ? adTagUrl
-            : String(flags.content || `${lanBase}/media/content-main.mp4`),
+            : `${lanBase}/media/content-main.mp4`),
         adMode: mode,
         ssaiMetaUrl,
         sessionId,

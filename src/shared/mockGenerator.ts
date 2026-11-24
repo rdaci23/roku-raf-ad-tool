@@ -502,6 +502,106 @@ export function generateSsaiRafMetadata(baseUrl: string, sessionId: string) {
   ];
 }
 
+export function generateSsaiAbrMasterPlaylist(baseUrl: string, sessionId = 'default'): string {
+  const root = baseUrl.replace(/\/$/, '');
+  const q = `session=${encodeURIComponent(sessionId)}`;
+  return `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-STREAM-INF:BANDWIDTH=520000,AVERAGE-BANDWIDTH=480000,RESOLUTION=416x234,CODECS="avc1.4d4015,mp4a.40.2"
+${root}/mock/ssai-abr/variant-234p.m3u8?${q}
+#EXT-X-STREAM-INF:BANDWIDTH=1120000,AVERAGE-BANDWIDTH=1050000,RESOLUTION=768x432,CODECS="avc1.4d401e,mp4a.40.2"
+${root}/mock/ssai-abr/variant-432p.m3u8?${q}
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,AVERAGE-BANDWIDTH=2250000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"
+${root}/mock/ssai-abr/variant-720p.m3u8?${q}
+`;
+}
+
+export function generateSsaiAbrVariantPlaylist(baseUrl: string, rung: '234p' | '432p' | '720p'): string {
+  const root = baseUrl.replace(/\/$/, '');
+  return `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-PROGRAM-DATE-TIME:2026-11-24T00:00:00.000Z
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-content-1.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-CUE-OUT:DURATION=10.0
+#EXT-X-DATERANGE:ID="raf-abr-pod-1",START-DATE="2026-11-24T00:00:05.000Z",DURATION=10.0,SCTE35-OUT=0xFC301100000000000000FFF000000500015F90
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-ad-brand.ts
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-ad-promo.ts
+#EXT-X-CUE-IN
+#EXT-X-DISCONTINUITY
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-content-2.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-CUE-OUT:DURATION=5.0
+#EXT-X-DATERANGE:ID="raf-abr-pod-2",START-DATE="2026-11-24T00:00:20.000Z",DURATION=5.0,SCTE35-OUT=0xFC301100000000000000FFF00000050000AFC8
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-ad-bumper.ts
+#EXT-X-CUE-IN
+#EXT-X-DISCONTINUITY
+#EXTINF:5.000,
+${root}/media/hls/abr-${rung}-content-3.ts
+#EXT-X-ENDLIST
+`;
+}
+
+export function generateSsaiAbrRafMetadata(baseUrl: string, sessionId: string) {
+  const root = baseUrl.replace(/\/$/, '');
+  const mkSpot = (podId: string, adId: string, adTitle: string, startSec: number, durSec: number) => {
+    const mkTrack = (event: string, frac: number) => ({
+      event,
+      url: buildBeaconUrl(root, { sessionId, event, adId, podId }),
+      time: Number((startSec + durSec * frac).toFixed(2)),
+      triggered: false,
+    });
+    return {
+      adServer: root,
+      adId,
+      adTitle,
+      duration: durSec,
+      streamFormat: 'hls',
+      streams: [],
+      companionAds: [],
+      tracking: [
+        mkTrack('Impression', 0),
+        mkTrack('Start', 0.02),
+        mkTrack('FirstQuartile', 0.25),
+        mkTrack('Midpoint', 0.5),
+        mkTrack('ThirdQuartile', 0.75),
+        mkTrack('Complete', 0.98),
+      ],
+    };
+  };
+
+  return [
+    {
+      id: 'raf-abr-pod-1',
+      viewed: false,
+      renderSequence: 'midroll',
+      renderTime: 5,
+      duration: 10,
+      ads: [
+        mkSpot('raf-abr-pod-1', 'abr-brand-spot-1', 'ABR Stitched Brand Commercial (5s)', 5, 5),
+        mkSpot('raf-abr-pod-1', 'abr-promo-spot-2', 'ABR Stitched Promo Spot (5s)', 10, 5),
+      ],
+    },
+    {
+      id: 'raf-abr-pod-2',
+      viewed: false,
+      renderSequence: 'midroll',
+      renderTime: 20,
+      duration: 5,
+      ads: [mkSpot('raf-abr-pod-2', 'abr-bumper-spot-3', 'ABR Stitched Sponsor Bumper (5s)', 20, 5)],
+    },
+  ];
+}
+
 export function buildFromCustomConfig(cfg: CustomMockConfig, baseUrl: string): string {
   const ctx: MockBuildContext = {
     baseUrl,
