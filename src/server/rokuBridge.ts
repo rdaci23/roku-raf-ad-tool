@@ -504,26 +504,40 @@ export async function sideloadChannelToRoku(opts: {
 }): Promise<{ ok: boolean; status: number; message: string }> {
   const ip = opts.ip.trim();
   const username = opts.username || 'rokudev';
-  const { body, contentType } = buildMultipartForm([{ name: 'mysubmit', value: 'Install' }], {
-    name: 'archive',
-    filename: 'roku-raf-harness.zip',
-    contentType: 'application/zip',
-    data: opts.zipBuffer,
-  });
 
-  const installResp = await fetchWithRokuDigest({
-    ip,
-    uri: '/plugin_install',
-    method: 'POST',
-    username,
-    password: opts.password,
-    headers: { 'Content-Type': contentType },
-    body: new Uint8Array(body),
-    timeoutMs: 15000,
-  });
+  // Ensure any currently open dev channel exits to Home before replacing the dev slot
+  await sendRokuKeypress(ip, 'Home').catch(() => {});
+  await new Promise((r) => setTimeout(r, 700));
 
-  const html = await installResp.text();
-  const msgMatch = html.match(/<font[^>]*color="red"[^>]*>([\s\S]*?)<\/font>/i);
+  const postArchive = async (submitAction: 'Replace' | 'Install') => {
+    const { body, contentType } = buildMultipartForm([{ name: 'mysubmit', value: submitAction }], {
+      name: 'archive',
+      filename: 'roku-raf-harness.zip',
+      contentType: 'application/zip',
+      data: opts.zipBuffer,
+    });
+    return fetchWithRokuDigest({
+      ip,
+      uri: '/plugin_install',
+      method: 'POST',
+      username,
+      password: opts.password,
+      headers: { 'Content-Type': contentType },
+      body: new Uint8Array(body),
+      timeoutMs: 15000,
+    });
+  };
+
+  let installResp = await postArchive('Replace');
+  let html = await installResp.text();
+  if (/no application|not installed/i.test(html)) {
+    installResp = await postArchive('Install');
+    html = await installResp.text();
+  }
+
+  const msgMatch =
+    html.match(/Roku\.Message[\s\S]*?content\(["']([^"']+)["']\)/i) ||
+    html.match(/<font[^>]*color="red"[^>]*>([\s\S]*?)<\/font>/i);
   const statusMsg = msgMatch ? msgMatch[1].replace(/<[^>]+>/g, '').trim() : `HTTP ${installResp.status}`;
   const ok = installResp.ok && !/install failure|failed/i.test(statusMsg);
 
