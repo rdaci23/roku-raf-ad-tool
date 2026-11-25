@@ -38,7 +38,12 @@ raf sideload --json
 
 # Run an end-to-end test on physical Roku hardware (add --proxy for external tags), capture screenshot & audit
 raf run --scenario single-preroll --mode csai --screenshot --json
+raf run --scenario ssai-abr --screenshot --json
 raf run --tag "https://pubads.g.doubleclick.net/gampad/ads?..." --proxy --screenshot --json
+
+# Bridge external HLS simulators (e.g. hls-dash-live-sim on 127.0.0.1:8899) to Roku via /proxy/stream & /api/ssai/bridge-metadata
+#   Stream relay : http://<lan-ip>:4321/proxy/stream?url=http%3A%2F%2F127.0.0.1%3A8899%2Fproxy.m3u8
+#   SSAI bridge  : http://<lan-ip>:4321/api/ssai/bridge-metadata?manifestUrl=http%3A%2F%2F127.0.0.1%3A8899%2Fproxy.m3u8&session=roku-tv
 
 # Attach to any installed dev/channel without overwriting dev, or sample :8080 RAM/VRAM/CPU
 raf attach --channel dev --content-id ep-101 --media-type episode --json

@@ -92,6 +92,7 @@ raf attach --ip <roku-ip> --channel dev --content-id ep-101 --media-type episode
 raf perf --ip <roku-ip> --json
 raf chaos --mode http-503 --json
 raf run --ip <roku-ip> --scenario single-preroll --mode csai --screenshot --json
+raf run --ip <roku-ip> --scenario ssai-abr --screenshot --json       # 3-rung ABR multi-spot stitched SSAI
 raf suite --simulate --json          # Offline CI / agent simulation
 raf suite --ip <roku-ip> --json      # Full 20-case physical Roku hardware & chaos suite
 raf har ./samples/public-gam-roku-capture.har --json

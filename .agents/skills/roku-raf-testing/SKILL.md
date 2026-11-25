@@ -20,8 +20,8 @@ Use this skill whenever scanning Roku BrightScript channel code, validating Roku
    - Sideload if `roku-channel/` changed: `raf sideload --json`
    - Attach to an existing Roku channel without overwriting `dev`: `raf attach --content-id ep-101 --media-type episode --json`
    - Sample `:8080` RAM, GPU Texture VRAM & CPU headroom: `raf perf --json`
-   - Run single scenario (add `--proxy` for external ad servers) with Expected-vs-Actual diff & screenshot:
-     `raf run --scenario <slug> --mode <csai|csai-stitched|csai-skippable|ssai|ssai-live|google-dai> --screenshot --json`
+   - Run single scenario (including `ssai-abr` 3-rung stitched ABR, or `--proxy` for external ad servers) with Expected-vs-Actual diff & screenshot:
+     `raf run --scenario <slug> --mode <csai|csai-stitched|csai-skippable|ssai|ssai-live|google-dai> [--content <url>] [--meta <ssai-meta-url>] --screenshot --json`
    - Run full 20-case certification & chaos suite (`--simulate` when offline):
      `raf suite --json`
    - Inspect `certScore`, `matchedBeacons`, `missingBeacons`, `certChecks`, and `rafLogs` in the returned JSON.

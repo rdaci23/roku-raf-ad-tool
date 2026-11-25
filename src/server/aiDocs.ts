@@ -26,22 +26,29 @@ OpenAPI Spec: ${baseUrl}/api/openapi.json
 ## MCP Server (Stdio)
 
 Start MCP server for Claude Code, Antigravity, Codex, or Cursor:
-\`npm run mcp\`
+\`npx -y --package=roku-raf-ad-tool roku-raf-mcp\` (or \`npm run mcp\`)
 
 ## Key HTTP Endpoints
 
-- \`GET  /api/info\` — LAN host, default RAF macros & prefs, :8085 console state
+- \`GET  /api/info\` — LAN host, default RAF macros & prefs, :8085 console state, active chaos config
 - \`POST /api/scan-repo\` — \`{ repoPath? }\` -> RepoScanReport (BrightScript/SceneGraph static audit)
-- \`POST /api/validate\` — \`{ url?, xml?, macros? }\` -> ValidationReport (VAST / VMAP / SmartXML)
+- \`POST /api/validate\` — \`{ url?, xml?, macros?, policy? }\` -> ValidationReport (VAST / VMAP / SmartXML + Ad-Load policy)
 - \`POST /api/inspect-manifest\` — \`{ url?, text? }\` -> ManifestInspectionReport (HLS / MPEG-DASH)
 - \`POST /api/vendor/build\` — \`{ params, useLocalMock }\` -> Vendor URL + VendorRequestAudit
 - \`POST /api/vendor/audit\` — \`{ url }\` -> VendorRequestAudit
 - \`POST /api/vendor/brs-snippet\` — \`{ mode, adTagOrStreamUrl, contentUrl?, prefs? }\` -> \`{ code }\`
 - \`GET  /proxy/tag?url=<encoded>&session=<id>&forward=1\` — Instrument & proxy external VAST/VMAP tags
+- \`GET  /proxy/stream?url=<encoded>\` — Relay loopback/external HLS/DASH playlists & segments to LAN Roku devices
+- \`GET  /mock/ssai-abr/master.m3u8?session=<id>\` — 3-rung (234p/432p/720p) multi-ad stitched ABR HLS stream
+- \`GET  /mock/ssai-abr/raf-metadata.json?session=<id>\` — Synchronized 2-pod / 3-spot RAF stitchedAdsInit metadata
+- \`GET  /api/ssai/bridge-metadata?manifestUrl=<encoded>&session=<id>\` — Auto-sync external #EXT-X-DATERANGE / #EXT-X-CUE-OUT HLS breaks into RAF stitchedAdsInit pods
+- \`POST /api/chaos\` — \`{ mode, delayMs?, dropAtHop? }\` -> Configure Ad Chaos & network fault injection
 - \`GET  /api/beacons?session=<id>\` — Captured HTTP beacons, telemetry, :8085 logs, quartile progress & screenshots
 - \`GET  /api/audit?session=<id>&toleranceSec=1.5\` — Expected-vs-Actual beacon diff & Roku Certification report
 - \`POST /api/live/cue-break\` — \`{ sessionId, durationSec }\` -> Inject live SCTE-35 break
-- \`POST /api/roku/launch\` — \`{ ip, adTagUrl, contentUrl?, adMode, sessionId, useInputIfRunning?, rafPrefs? }\`
+- \`GET  /api/roku/perf?ip=<roku-ip>&session=<id>\` — Sample Roku OS :8080 RAM, Texture VRAM, CPU %, and SG nodes
+- \`POST /api/roku/attach\` — \`{ ip, channelId?, contentId, mediaType, useInputIfRunning? }\` -> Zero-sideload Cert 4.x deep-link attach
+- \`POST /api/roku/launch\` — \`{ ip, adTagUrl, contentUrl?, ssaiMetaUrl?, adMode, sessionId, useInputIfRunning?, rafPrefs? }\`
 - \`POST /api/roku/screenshot\` — \`{ ip, password, sessionId }\` -> ScreenshotRecord (base64 dataUrl)
 - \`POST /api/suite/start\` — \`{ deviceIp, password?, simulateWithoutDevice?, caseIds? }\` -> SuiteRunReport
 - \`POST /api/snapshots\` — \`{ name, sessionId }\` -> Save SessionSnapshot to SQLite
@@ -54,7 +61,7 @@ export function buildOpenApiSpec(baseUrl: string) {
     openapi: '3.1.0',
     info: {
       title: 'Roku RAF Ad Tool API',
-      version: '1.0.0',
+      version: '1.1.0',
       description:
         'Programmatic HTTP API for Roku Advertising Framework (RAF) static channel scanning, tag/manifest validation, live beacon auditing, CSAI/SSAI/DAI mock serving, and physical Roku device automation.',
     },
@@ -83,6 +90,25 @@ export function buildOpenApiSpec(baseUrl: string) {
       },
       '/proxy/tag': {
         get: { summary: 'Rewrite VAST/VMAP beacons & nested AdTagURIs through local beacon auditor' },
+      },
+      '/proxy/stream': {
+        get: { summary: 'Relay loopback or external HLS/DASH playlists and segments to LAN Roku devices' },
+      },
+      '/mock/ssai-abr/master.m3u8': {
+        get: { summary: 'Serve 3-rung (234p/432p/720p) multi-ad stitched ABR HLS master playlist' },
+      },
+      '/api/ssai/bridge-metadata': {
+        get: { summary: 'Auto-sync external #EXT-X-DATERANGE / #EXT-X-CUE-OUT breaks into RAF stitchedAdsInit pods' },
+      },
+      '/api/chaos': {
+        get: { summary: 'Read active Ad Chaos & network fault injector configuration' },
+        post: { summary: 'Set or clear Ad Chaos fault mode (http-503, http-429, corrupt-xml, timeout-hang, etc.)' },
+      },
+      '/api/roku/perf': {
+        get: { summary: 'Query Roku OS :8080 Channel RAM, GPU Texture VRAM, CPU %, and SceneGraph node count' },
+      },
+      '/api/roku/attach': {
+        post: { summary: 'Zero-sideload Roku Cert 4.x deep-link launch (/launch or /input) into an existing channel' },
       },
       '/api/beacons': {
         get: { summary: 'List captured beacons, RAF telemetry, :8085 logs, quartile progress, and screenshots' },
