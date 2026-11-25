@@ -4,7 +4,9 @@ Unified engineering, debugging, and certification workbench for the **Roku Adver
 
 Covers static BrightScript channel scanning, **CSAI (VAST 2.0–4.2 / VMAP 1.0 / FreeWheel SmartXML)**, **Client-Stitched Pods**, **Custom Skippable SceneGraph UI**, **VOD & Live Linear SSAI (`#EXT-X-DATERANGE` / SCTE-35)**, **MPEG-DASH (`.mpd`)**, and **Google Ad Manager DAI**.
 
-![Validator, Ad-Load Policy & BrightScript Scanner](./docs/screenshots/validator-and-scanner.png)
+| VAST / VMAP / SmartXML Validator & Creative Preview | Live SCTE-35 SSAI, Google DAI & Ad Chaos Studio |
+| :---: | :---: |
+| ![Validator, Ad-Load Policy & BrightScript Scanner](./docs/screenshots/validator-and-scanner.png) | ![Live SCTE-35 SSAI & Ad Chaos Studio](./docs/screenshots/live-ssai-and-chaos-studio.png) |
 
 | Expected-vs-Actual Beacon & Certification Auditor | Roku Roster, `:8080` Profiler & 20-Case Suite |
 | :---: | :---: |
